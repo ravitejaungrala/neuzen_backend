@@ -20,7 +20,7 @@ import jobRoutes from './routes/jobs.js';
 import analyticsRoutes from './routes/analytics.js';
 import dashboardRoutes from './routes/dashboard.js';
 import hrAIAnalysisRoutes from './routes/hrAIAnalysis.js';
-import publicRoutes from './routes/testimonialRoutes.js';
+import testimonalRoutes from './routes/testimonialRoutes.js';
 import communicationRoutes from './routes/communicationRoutes.js';
 import hrAICandidateRoutes from './routes/hrAICandidate.js';
 
@@ -168,7 +168,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/hr/ai', hrAIAnalysisRoutes);
-app.use('/api/public', publicRoutes);
+app.use('/api/test', testimonalRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/hr/aicandidate', hrAICandidateRoutes);
 
