@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Update</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #757575;
+        }
+        .logo {
+            color: #757575;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .message-box {
+            background: #f5f5f5;
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #757575;
+        }
+        .encouragement {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #2196F3;
+        }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #757575, #9E9E9E);
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">AI Hire</div>
+            <h1>Application Update</h1>
+        </div>
+        
+        <div class="content">
+            <p>Dear <strong>{{name}}</strong>,</p>
+            
+            <p>Thank you for taking the time to apply for the <strong>{{jobTitle}}</strong> position 
+            at <strong>{{companyName}}</strong>. We appreciate your interest in joining our team.</p>
+            
+            <div class="message-box">
+                <p>After careful consideration of all applications, we have decided to move forward 
+                with other candidates whose qualifications more closely match our current needs.</p>
+                
+                <p>This decision was not easy, as we received many excellent applications. 
+                We were impressed with your background and experience.</p>
+            </div>
+            
+            {{#if feedback}}
+            <div class="encouragement">
+                <h3>📝 Feedback:</h3>
+                <p>{{feedback}}</p>
+            </div>
+            {{/if}}
+            
+            <div class="encouragement">
+                <h3>🌟 Keep Going!</h3>
+                <p>While this particular opportunity didn't work out, we encourage you to:</p>
+                <ul>
+                    <li>Apply for other positions at {{companyName}} that match your skills</li>
+                    <li>Follow our company page for future openings</li>
+                    <li>Continue building your skills and portfolio</li>
+                    <li>Network with professionals in your field</li>
+                </ul>
+            </div>
+            
+            <p>We wish you the very best in your job search and future career endeavors. 
+            Thank you again for considering {{companyName}}.</p>
+            
+            <div style="text-align: center;">
+                <a href="{{dashboardURL}}/jobs" class="button">Browse Other Opportunities</a>
+            </div>
+            
+            <p>Sincerely,<br>
+            <strong>The Hiring Team</strong><br>
+            {{companyName}}</p>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2024 AI Hire. All rights reserved.</p>
+            <p>This decision was based on the current role requirements and candidate pool.</p>
+        </div>
+    </div>
+</body>
+</html>

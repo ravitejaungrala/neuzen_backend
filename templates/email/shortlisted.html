@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shortlisted for Position</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #FF6B2C;
+        }
+        .logo {
+            color: #FF6B2C;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .content {
+            padding: 30px 20px;
+        }
+        .highlight {
+            background: linear-gradient(135deg, #FF6B2C, #FF8E53);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+            border-top: 1px solid #eee;
+        }
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #FF6B2C, #FF8E53);
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">AI Hire</div>
+            <h1>Congratulations! 🎉</h1>
+        </div>
+        
+        <div class="content">
+            <p>Dear <strong>{{name}}</strong>,</p>
+            
+            <p>We are thrilled to inform you that your application for the position of 
+            <strong>{{jobTitle}}</strong> at <strong>{{companyName}}</strong> has been shortlisted!</p>
+            
+            <div class="highlight">
+                <h2>Next Steps:</h2>
+                <p>{{nextSteps}}</p>
+            </div>
+            
+            <p>This is an exciting opportunity, and we're impressed with your qualifications. 
+            We look forward to learning more about you!</p>
+            
+            <p>Best regards,<br>
+            <strong>The Hiring Team</strong><br>
+            {{companyName}}</p>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2024 AI Hire. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

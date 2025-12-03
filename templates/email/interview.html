@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Scheduled</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #4CAF50;
+        }
+        .logo {
+            color: #4CAF50;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .interview-details {
+            background: #e8f5e9;
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #4CAF50;
+        }
+        .detail-item {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .detail-item:last-child {
+            border-bottom: none;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">AI Hire</div>
+            <h1>Interview Scheduled 📅</h1>
+        </div>
+        
+        <div class="content">
+            <p>Dear <strong>{{name}}</strong>,</p>
+            
+            <p>Your interview for <strong>{{jobTitle}}</strong> at <strong>{{companyName}}</strong> has been scheduled.</p>
+            
+            <div class="interview-details">
+                <h2>Interview Details:</h2>
+                <div class="detail-item">
+                    <strong>📅 Date:</strong> {{interviewDate}}
+                </div>
+                <div class="detail-item">
+                    <strong>⏰ Time:</strong> {{interviewTime}}
+                </div>
+                <div class="detail-item">
+                    <strong>📍 Location:</strong> {{location}}
+                </div>
+                {{#if meetingLink}}
+                <div class="detail-item">
+                    <strong>🔗 Meeting Link:</strong> 
+                    <a href="{{meetingLink}}" style="color: #4CAF50;">Click to Join</a>
+                </div>
+                {{/if}}
+                <div class="detail-item">
+                    <strong>👤 Interviewer:</strong> {{interviewer}}
+                </div>
+            </div>
+            
+            <p>Please arrive 5-10 minutes early. If you need to reschedule or have any questions, 
+            reply to this email at least 24 hours before the scheduled time.</p>
+            
+            <p>Best regards,<br>
+            <strong>The Hiring Team</strong><br>
+            {{companyName}}</p>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2024 AI Hire. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

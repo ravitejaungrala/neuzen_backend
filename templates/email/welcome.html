@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to AI Hire</title>
+    <style>
+        body { 
+            font-family: 'Arial', sans-serif; 
+            background-color: #f8fafc; 
+            margin: 0; 
+            padding: 0; 
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 40px; 
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        .header { 
+            text-align: center; 
+            color: #FF6B2C; 
+            margin-bottom: 30px;
+        }
+        .logo { 
+            font-size: 24px; 
+            font-weight: bold; 
+            margin-bottom: 10px;
+        }
+        .welcome-icon {
+            font-size: 64px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .feature {
+            background-color: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #FF6B2C;
+        }
+        .footer { 
+            text-align: center; 
+            color: #64748b; 
+            font-size: 14px; 
+            margin-top: 40px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background: #FF6B2C;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 20px 0;
+        }
+        .center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">AI Hire</div>
+            <h1>Welcome to AI Hire! 🎉</h1>
+        </div>
+        
+        <div class="welcome-icon">🤖</div>
+        
+        <p>Hello <strong>{{name}}</strong>,</p>
+        
+        <p>Welcome to AI Hire! We're thrilled to have you on board. Your account has been successfully created and you're now ready to revolutionize your hiring process with AI-powered candidate matching.</p>
+        
+        <h3>What you can do with AI Hire:</h3>
+        
+        <div class="feature">
+            <strong>🚀 AI-Powered Matching</strong>
+            <p>Our intelligent algorithm matches candidates with job requirements instantly.</p>
+        </div>
+        
+        <div class="feature">
+            <strong>📊 Smart Analytics</strong>
+            <p>Get insights into your hiring pipeline and candidate quality.</p>
+        </div>
+        
+        <div class="feature">
+            <strong>📧 Automated Communication</strong>
+            <p>Send emails and schedule interviews seamlessly.</p>
+        </div>
+        
+        <div class="center">
+            <a href="{{dashboardURL}}" class="button">Go to Dashboard</a>
+        </div>
+        
+        <p>If you have any questions or need help getting started, don't hesitate to reach out to our support team.</p>
+        
+        <p>Best regards,<br>The AI Hire Team</p>
+        
+        <div class="footer">
+            <p>&copy; 2024 AI Hire. All rights reserved.</p>
+            <p>This is an automated welcome message.</p>
+        </div>
+    </div>
+</body>
+</html>
