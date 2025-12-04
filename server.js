@@ -32,20 +32,22 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
+// 👉 IMPORTANT: Tell Express it's behind a proxy (Render/Heroku/etc.)
+app.set('trust proxy', 1);
+
 // ================== ENHANCED CORS CONFIGURATION ==================
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://neuzen-frontend.onrender.com',
-  'https://talenthr-front.onrender.com',
-  'https://talentflowhr-frontend.netlify.app'
+  'https://talenthr-front.onrender.com'
+  // Netlify domain removed as requested
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -57,19 +59,16 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-api-key'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 };
 
-// Apply CORS middleware
 app.use(cors(corsOptions));
-
-// Handle preflight requests
 app.options('*', cors(corsOptions));
 
 // ================== MIDDLEWARE ==================
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false // Disable CSP for development, enable in production
+  contentSecurityPolicy: false
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -78,8 +77,8 @@ app.use(morgan('dev'));
 
 // ================== RATE LIMITING ==================
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -102,11 +101,11 @@ const io = new Server(server, {
 
 io.on('connection', (socket) => {
   console.log('✅ New client connected:', socket.id);
-  
+
   socket.on('join-user', (userId) => {
     socket.join(`user-${userId}`);
   });
-  
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });
@@ -114,7 +113,7 @@ io.on('connection', (socket) => {
 
 app.set('io', io);
 
-// ================== DATABASE CONNECTION ==================
+// ================== DATABASE ==================
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ai-hire-platform';
 
 mongoose.connect(MONGODB_URI, {
@@ -127,13 +126,13 @@ mongoose.connect(MONGODB_URI, {
   process.exit(1);
 });
 
-// ================== UPLOADS DIRECTORY ==================
+// ================== FILE UPLOAD FOLDERS ==================
 const createUploadDirectories = () => {
   const directories = [
     path.join(__dirname, 'uploads', 'resumes'),
     path.join(__dirname, 'uploads', 'temp')
   ];
-  
+
   directories.forEach(dir => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -144,11 +143,9 @@ const createUploadDirectories = () => {
 
 createUploadDirectories();
 
-// Serve static files from uploads directory
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ================== ROUTES ==================
-// Health check route
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
@@ -159,7 +156,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Register all API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hr', hrRoutes);
 app.use('/api/candidate', candidateRoutes);
@@ -172,21 +168,19 @@ app.use('/api/test', testimonalRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/hr/aicandidate', hrAICandidateRoutes);
 
-// ================== ERROR HANDLING ==================
-// 404 handler for API routes
+// ================== 404 HANDLER ==================
 app.use('/api/*', (req, res) => {
   res.status(404).json({
     status: 'error',
     message: `API endpoint ${req.originalUrl} not found`,
-    suggestion: 'Available endpoints: /api/health, /api/auth, /api/hr, etc.'
+    suggestion: 'Check available routes like /api/health'
   });
 });
 
-// Global error handler
+// ================== GLOBAL ERROR HANDLER ==================
 app.use((err, req, res, next) => {
   console.error('🚨 Error:', err.stack);
-  
-  // Handle CORS errors
+
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({
       status: 'error',
@@ -194,14 +188,10 @@ app.use((err, req, res, next) => {
       allowedOrigins: allowedOrigins
     });
   }
-  
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-  
-  res.status(statusCode).json({
+
+  res.status(err.statusCode || 500).json({
     status: 'error',
-    message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    message: err.message || 'Internal Server Error'
   });
 });
 
