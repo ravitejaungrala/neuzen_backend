@@ -23,7 +23,7 @@ import hrAIAnalysisRoutes from './routes/hrAIAnalysis.js';
 import testimonalRoutes from './routes/testimonialRoutes.js';
 import communicationRoutes from './routes/communicationRoutes.js';
 import hrAICandidateRoutes from './routes/hrAICandidate.js';
-
+import uploadRoutes from './routes/uploadRoutes.js';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
