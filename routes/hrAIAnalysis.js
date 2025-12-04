@@ -7,7 +7,8 @@ import {
   getCandidateAIInsights,
   generateInterviewQuestions,
   compareCandidates,
-  quickAnalyzeResume
+  quickAnalyzeResume,
+  getScreeningInsights
 } from '../controllers/hrAIAnalysisController.js';
 
 const router = express.Router();
@@ -23,6 +24,9 @@ router.post('/quick-analyze', quickAnalyzeResume);
 // Candidate-specific analysis
 router.post('/analyze-resume/:candidateId', analyzeResumeForHR);
 router.get('/insights/:candidateId', getCandidateAIInsights);
+
+// Add screening endpoint
+router.get('/insights/screening', getScreeningInsights);
 
 // Generate interview questions
 router.post('/interview-questions/:candidateId', generateInterviewQuestions);
