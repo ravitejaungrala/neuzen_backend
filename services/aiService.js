@@ -1,63 +1,234 @@
-// backend/services/aiService.js - UPDATED WITH GEMINI AI
+// backend/services/aiService.js - UPDATED WITH CORRECT MODELS
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Try to import optional dependencies
+// --- Optional Dependencies for Local Fallback ---
 let pdfParse, mammoth;
 try {
   pdfParse = (await import('pdf-parse')).default;
 } catch (error) {
-  console.warn('pdf-parse not installed, PDF parsing will be limited');
+  console.warn('pdf-parse not installed for local fallback');
   pdfParse = null;
 }
 
 try {
   mammoth = (await import('mammoth')).default;
 } catch (error) {
-  console.warn('mammoth not installed, DOCX parsing will be limited');
+  console.warn('mammoth not installed for local fallback');
   mammoth = null;
 }
+// -------------------------------------------------
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Helper function to convert a local file to a GenerativePart object
+function fileToGenerativePart(filePath, mimeType) {
+  return {
+    inlineData: {
+      data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
+      mimeType,
+    },
+  };
+}
+
 class AIService {
   constructor() {
-    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'mock-key-for-development');
+    this.apiKey = process.env.GEMINI_API_KEY || 'mock-key-for-development';
+    this.genAI = new GoogleGenerativeAI(this.apiKey);
+    this.modelName = "gemini-1.5-flash-latest"; // UPDATED: Correct model name
   }
 
-  // Helper method to call Gemini AI
-  async callGeminiAI(prompt, systemInstruction = null, responseFormat = 'text') {
+  // --- JSON Schema for Basic Resume Parsing ---
+  get resumeSchema() {
+    return {
+      type: "object",
+      properties: {
+        personalInfo: {
+            type: "object",
+            properties: {
+                fullName: { type: "string" },
+                email: { type: "string" },
+                phone: { type: "string" },
+                location: { type: "string" }
+            },
+        },
+        skills: {
+          type: "array",
+          description: "List of technical and soft skills.",
+          items: { type: "string" },
+        },
+        experience: {
+          type: "array",
+          description: "List of work experience entries.",
+          items: {
+            type: "object",
+            properties: {
+              company: { type: "string" },
+              title: { type: "string" },
+              duration: { type: "string", description: "e.g., 'Jan 2020 - Present' or '3 years'" },
+              description: { type: "string", description: "Summary of responsibilities and achievements." },
+            },
+            required: ["company", "title"],
+          },
+        },
+        education: {
+          type: "array",
+          description: "List of educational entries.",
+          items: {
+            type: "object",
+            properties: {
+              institution: { type: "string" },
+              degree: { type: "string" },
+              year: { type: "string", description: "e.g., '2020'" },
+            },
+            required: ["institution", "degree"],
+          },
+        },
+        certifications: {
+          type: "array",
+          description: "List of professional certifications.",
+          items: { type: "string" },
+        },
+        summary: {
+          type: "string",
+          description: "Brief professional summary of the candidate.",
+        },
+      },
+      required: ["skills", "experience", "education"],
+    };
+  }
+
+  // --- Define a JSON Schema for Detailed Analysis ---
+  getAnalysisSchema() {
+    return {
+      type: "object",
+      properties: {
+        summary: {
+          type: "object",
+          properties: {
+            overallScore: { type: "integer", description: "Score out of 100." },
+            grade: { type: "string" },
+            summaryText: { type: "string" }
+          },
+        },
+        extractedSkills: {
+          type: "object",
+          properties: {
+            technical: { type: "array", items: { type: "string" } },
+            soft: { type: "array", items: { type: "string" } },
+            missing: { type: "array", items: { type: "string" } }
+          },
+        },
+        experienceAnalysis: {
+            type: "object",
+            properties: {
+                totalExperience: { type: "integer" },
+                careerProgression: { type: "boolean" },
+                achievementsHighlighted: { type: "boolean" },
+                gaps: { type: "array", items: { type: "string" } },
+                recommendations: { type: "array", items: { type: "string" } }
+            }
+        },
+        keywordAnalysis: {
+          type: "object",
+          properties: {
+            atsScore: { type: "integer", description: "ATS (Applicant Tracking System) compatibility score out of 100." },
+            missingKeywords: { type: "array", items: { type: "string" } },
+            recommendedKeywords: { type: "array", items: { type: "string" } }
+          }
+        },
+        careerRecommendations: {
+            type: "object",
+            properties: {
+                suitableRoles: { type: "array", items: { type: "string" } },
+                industries: { type: "array", items: { type: "string" } },
+                nextSteps: { type: "array", items: { type: "string" } },
+                salaryRange: { type: "string" }
+            }
+        },
+        aiInsights: {
+            type: "object",
+            properties: {
+                strengths: { type: "array", items: { type: "string" } },
+                weaknesses: { type: "array", items: { type: "string" } },
+                opportunities: { type: "array", items: { type: "string" } },
+                threats: { type: "array", items: { type: "string" } }
+            }
+        },
+        improvementSuggestions: { type: "array", items: { type: "string" } }
+      },
+      required: ["summary", "extractedSkills", "experienceAnalysis", "keywordAnalysis"],
+    };
+  }
+
+  // --- Define a JSON Schema for Interview Questions ---
+  get interviewSchema() {
+    return {
+      type: "object",
+      properties: {
+        technical: { type: "array", items: { type: "string" }, description: "Questions assessing core technical skills." },
+        behavioral: { type: "array", items: { type: "string" }, description: "STAR method style questions about past experience." },
+        scenarioBased: { type: "array", items: { type: "string" }, description: "Hypothetical problem-solving questions." },
+        culturalFit: { type: "array", items: { type: "string" }, description: "Questions assessing alignment with company values and team dynamics." }
+      },
+      required: ["technical", "behavioral", "scenarioBased", "culturalFit"]
+    };
+  }
+
+  // Helper method to call Gemini AI with updated config
+  async callGeminiAI(
+    prompt, 
+    systemInstruction = null, 
+    responseSchema = null, 
+    fileParts = [],
+    config = {}
+  ) {
+    if (this.apiKey === 'mock-key-for-development') {
+      throw new Error('Gemini API key not configured. Cannot make AI calls.');
+    }
+
     try {
-      const model = this.genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        systemInstruction: systemInstruction
-      });
-      
-      const result = await model.generateContent(prompt);
+      const modelConfig = {
+        model: this.modelName, // UPDATED: Using correct model name
+        generationConfig: {
+          temperature: config.temperature || 0.5,
+          topK: config.topK || 40,
+          responseMimeType: responseSchema ? "application/json" : "text/plain",
+        },
+      };
+
+      if (systemInstruction) {
+        modelConfig.systemInstruction = systemInstruction;
+      }
+
+      const model = this.genAI.getGenerativeModel(modelConfig);
+
+      // Combine file parts and prompt for the content
+      const content = [...fileParts, { text: prompt }];
+
+      const result = await model.generateContent({ contents: content });
       const response = await result.response;
       
-      if (responseFormat === 'json') {
+      const text = response.text().trim();
+
+      if (responseSchema && modelConfig.generationConfig.responseMimeType === "application/json") {
         try {
-          // Clean the response text to extract JSON
-          const text = response.text();
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
-          }
-          return { error: "Could not parse JSON response" };
+          return JSON.parse(text);
         } catch (parseError) {
-          console.error('JSON parsing error:', parseError);
-          return { error: "Invalid JSON response" };
+          console.error('Failed to parse JSON response from model:', text, parseError);
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) return JSON.parse(jsonMatch[0]);
+          throw new Error("Invalid or unparseable JSON response from AI.");
         }
       }
       
-      return response.text();
+      return text;
     } catch (error) {
       console.error('Gemini AI API error:', error);
       throw error;
@@ -65,62 +236,55 @@ class AIService {
   }
 
   // ===== File Processing Methods =====
-  async extractTextFromFile(filePath, fileType) {
+  async extractTextFromFile(filePath, mimeType) {
+    const extension = path.extname(filePath).toLowerCase();
+
+    // 1. Try to use pdf-parse for PDF files if available
+    if ((mimeType.includes('pdf') || extension === '.pdf') && pdfParse) {
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(buffer);
+        return pdfData.text;
+      } catch (pdfError) {
+        console.warn('pdf-parse failed, trying fallback:', pdfError.message);
+      }
+    }
+
+    // 2. Try mammoth for DOCX files if available
+    if ((mimeType.includes('docx') || extension === '.docx') && mammoth) {
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+      } catch (docxError) {
+        console.warn('mammoth failed, trying fallback:', docxError.message);
+      }
+    }
+
+    // 3. For TXT files and fallback
     try {
-      // Check if file exists
       if (!fs.existsSync(filePath)) {
-        console.error('File does not exist:', filePath);
         return 'File not found';
       }
       
       const buffer = fs.readFileSync(filePath);
       
-      switch (fileType.toLowerCase()) {
-        case '.pdf':
-        case 'pdf':
-        case 'application/pdf':
-          if (pdfParse) {
-            const pdfData = await pdfParse(buffer);
-            return pdfData.text;
-          } else {
-            console.warn('pdf-parse not available, using fallback PDF extraction');
-            return this.extractTextFallback(buffer, 'pdf');
-          }
-        
-        case '.docx':
-        case 'docx':
-        case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-          if (mammoth) {
-            const result = await mammoth.extractRawText({ buffer });
-            return result.value;
-          } else {
-            console.warn('mammoth not available, using fallback DOCX extraction');
-            return this.extractTextFallback(buffer, 'docx');
-          }
-        
-        case '.doc':
-        case 'doc':
-        case 'application/msword':
-          return this.extractTextFallback(buffer, 'doc');
-        
-        case '.txt':
-        case 'txt':
-        case 'text/plain':
-          return buffer.toString('utf-8');
-        
-        default:
-          return buffer.toString('utf-8', 0, 50000);
+      // Handle different file types
+      if (extension === '.txt' || mimeType.includes('text/plain')) {
+        return buffer.toString('utf-8');
       }
+      
+      // Fallback for other file types
+      return this.extractTextFallback(buffer, extension);
+      
     } catch (error) {
-      console.error('Error extracting text from file:', error);
-      // Return empty string instead of throwing to avoid breaking the flow
+      console.error('File extraction error:', error);
       return `Error extracting text: ${error.message}`;
     }
   }
 
   extractTextFallback(buffer, fileType) {
     try {
-      // Basic text extraction
       let text = buffer.toString('utf-8', 0, 50000);
       text = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ');
       text = text.replace(/\s+/g, ' ').trim();
@@ -138,47 +302,31 @@ class AIService {
 
   // ===== Resume Analysis Methods =====
   
-  // Method 1: Original analyzeResume function
   async analyzeResume(resumeContent) {
+    if (this.apiKey === 'mock-key-for-development') {
+      return this.fallbackResumeAnalysis(resumeContent);
+    }
+    
     try {
-      const prompt = `
-        Analyze the following resume content and extract structured information:
-        
-        ${resumeContent}
-        
-        Please provide a JSON response with the following structure:
-        {
-          "skills": ["list of technical skills"],
-          "experience": [
-            {
-              "company": "company name",
-              "title": "job title",
-              "duration": "employment duration",
-              "description": "role description"
-            }
-          ],
-          "education": [
-            {
-              "institution": "school/university name",
-              "degree": "degree obtained",
-              "year": "graduation year"
-            }
-          ],
-          "certifications": ["list of certifications"],
-          "summary": "brief professional summary"
-        }
-      `;
-
-      const systemInstruction = "You are a resume parsing AI that extracts structured information from resumes. Always respond with valid JSON.";
+      const prompt = `Analyze the following resume content and extract structured information. Focus on accuracy and completeness of the data fields.
       
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
+      RESUME TEXT:
+      ${resumeContent}`;
+
+      const systemInstruction = "You are a highly accurate resume parsing AI. Extract all requested data into the specified JSON format.";
+      
+      const parsedData = await this.callGeminiAI(
+        prompt, 
+        systemInstruction, 
+        this.resumeSchema
+      );
       
       return {
         text: resumeContent,
-        parsedData: response,
-        score: this.calculateResumeScore(response),
+        parsedData: parsedData,
+        score: this.calculateResumeScore(parsedData),
         extractedAt: new Date(),
-        version: 'v1'
+        version: 'v2-structured-basic'
       };
     } catch (error) {
       console.error('AI resume analysis error:', error);
@@ -186,33 +334,33 @@ class AIService {
     }
   }
 
-  // Method 2: Enhanced resume analysis with Gemini AI
   async analyzeResumeWithGemini(resumeText, candidateProfile = null) {
-    try {
-      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'mock-key-for-development') {
-        console.warn('Gemini API key not configured, using mock analysis');
-        return this.mockResumeAnalysis(resumeText);
-      }
-
-      const prompt = this.createAnalysisPrompt(resumeText, candidateProfile);
-      
-      console.log('Sending request to Gemini AI API...');
-      
-      const systemInstruction = "You are an expert resume analyzer and career advisor. Analyze resumes thoroughly and provide detailed, actionable insights. Always return valid JSON.";
-      
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
-      
-      console.log('Received response from Gemini AI');
-      
-      return this.parseAnalysisResponse(response);
-      
-    } catch (error) {
-      console.error('Gemini AI analysis error:', error.message);
+    if (this.apiKey === 'mock-key-for-development') {
+      console.warn('Gemini API key not configured, using mock analysis');
       return this.mockResumeAnalysis(resumeText);
+    }
+
+    try {
+        const prompt = this.createAnalysisPrompt(resumeText, candidateProfile);
+        
+        const systemInstruction = "You are an expert resume analyzer and career advisor. Analyze resumes thoroughly, provide detailed, actionable, and objective insights. Always return valid JSON conforming to the specified schema.";
+        
+        const response = await this.callGeminiAI(
+            prompt, 
+            systemInstruction, 
+            this.getAnalysisSchema(), 
+            [],
+            { temperature: 0.7 }
+        );
+        
+        return this.parseAnalysisResponse(response);
+        
+    } catch (error) {
+        console.error('Gemini AI analysis error:', error.message);
+        return this.mockResumeAnalysis(resumeText);
     }
   }
 
-  // Unified resume analysis method (recommended)
   async analyzeResumeComprehensive(resumeContent, options = {}) {
     const { useEnhanced = true, candidateProfile = null } = options;
     
@@ -225,31 +373,37 @@ class AIService {
 
   // ===== Job Description Generation =====
   async generateJobDescription(data) {
+    if (this.apiKey === 'mock-key-for-development') {
+      return this.fallbackJobDescription(data);
+    }
+
     try {
       const { title, skills, experience, companyName, tone = 'professional' } = data;
       
       const prompt = `
-        Generate a compelling job description for a ${title} position.
+        You are tasked with generating a high-quality, ATS-optimized job description.
+
+        Generate a compelling job description for a **${title}** position at **${companyName}**.
         
-        Requirements:
-        - Required skills: ${skills.join(', ')}
-        - Experience level: ${experience} years
-        - Company: ${companyName}
-        - Tone: ${tone}
+        ### Requirements & Context:
+        - **Required Skills**: ${skills.join(', ')} (Must be explicitly mentioned)
+        - **Minimum Experience**: ${experience} years (State clearly in the requirements section)
+        - **Desired Tone**: ${tone} (Adjust language accordingly)
         
-        Include sections for:
-        1. Job overview
-        2. Responsibilities
-        3. Requirements (must-have and nice-to-have)
-        4. Benefits
-        5. About the company
+        ### Structure & Sections:
+        1. **Job Title & Overview**: An engaging 2-3 sentence summary.
+        2. **Key Responsibilities**: 5-7 detailed, action-oriented bullet points.
+        3. **Required Qualifications**: Clear, non-negotiable must-haves.
+        4. **Preferred Qualifications (Bonus)**: Nice-to-haves.
+        5. **Benefits & Perks**: 4-5 attractive points.
+        6. **About ${companyName}**: A short, engaging paragraph about the company culture.
         
-        Make it engaging and attractive to top talent.
+        Ensure the output is pure Markdown text, formatted beautifully for a job board.
       `;
 
-      const systemInstruction = "You are an expert HR professional who writes compelling job descriptions.";
+      const systemInstruction = "You are an expert HR professional and copywriter who crafts highly engaging, ATS-compliant job descriptions. Your response must be in clean, professional Markdown format.";
       
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'text');
+      const response = await this.callGeminiAI(prompt, systemInstruction, null, [], { temperature: 0.7 });
       
       return response;
     } catch (error) {
@@ -259,56 +413,33 @@ class AIService {
   }
 
   // ===== Interview Questions Generation =====
-  
-  // Method 1: Original generateInterviewQuestions function
   async generateInterviewQuestions(candidateSkills, jobRequirements) {
-    try {
-      const prompt = `
-        Generate interview questions for a candidate with skills: ${candidateSkills.join(', ')}
-        For a job requiring: ${jobRequirements.join(', ')}
-        
-        Provide questions in these categories:
-        1. Technical skills assessment
-        2. Behavioral questions
-        3. Scenario-based questions
-        4. Cultural fit questions
-        
-        Make the questions challenging but fair.
-      `;
-
-      const systemInstruction = "You are an experienced technical interviewer.";
-      
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'text');
-      
-      return response;
-    } catch (error) {
-      console.error('AI interview questions generation error:', error);
-      return this.fallbackInterviewQuestions(candidateSkills, jobRequirements);
-    }
+    // Legacy text-based method for fallback
+    return this.fallbackInterviewQuestions(candidateSkills, jobRequirements);
   }
 
-  // Method 2: Enhanced interview questions generation
   async generateInterviewQuestionsJSON(jobDescription, candidateSkills) {
+    if (this.apiKey === 'mock-key-for-development') {
+      return this.mockInterviewQuestions();
+    }
+
     try {
-      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'mock-key-for-development') {
-        return this.mockInterviewQuestions();
-      }
-
-      const prompt = `Generate interview questions for a candidate with skills: ${candidateSkills.join(', ')}
-For the following job description:\n\n${jobDescription.substring(0, 2000)}\n\n
-Provide questions in JSON format:
-{
-  "technical": ["Question 1", "Question 2"],
-  "behavioral": ["Question 1", "Question 2"],
-  "scenarioBased": ["Question 1"],
-  "companySpecific": ["Question 1"]
-}`;
-
-      const systemInstruction = "You are an experienced hiring manager creating interview questions. Always respond with valid JSON.";
+      const prompt = `Generate 4-6 challenging, high-leverage interview questions for each category based on the following candidate profile and job description.
       
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
+      **Candidate's Key Skills**: ${candidateSkills.join(', ')}
+      **Job Description Snippet**: ${jobDescription.substring(0, 2000)}`;
+
+      const systemInstruction = "You are an experienced hiring manager creating a rigorous set of interview questions. Always respond with valid JSON conforming to the specified schema, ensuring questions are open-ended and highly relevant.";
       
-      return this.parseInterviewQuestions(response);
+      const response = await this.callGeminiAI(
+        prompt, 
+        systemInstruction, 
+        this.interviewSchema,
+        [], 
+        { temperature: 0.6 }
+      );
+      
+      return response; 
       
     } catch (error) {
       console.error('Error generating interview questions:', error);
@@ -316,9 +447,8 @@ Provide questions in JSON format:
     }
   }
 
-  // Unified interview questions generation
   async generateInterviewQuestionsComprehensive(candidateSkills, jobRequirements, options = {}) {
-    const { useJSON = false, jobDescription = '' } = options;
+    const { useJSON = true, jobDescription = '' } = options;
     
     if (useJSON && jobDescription) {
       return this.generateInterviewQuestionsJSON(jobDescription, candidateSkills);
@@ -329,30 +459,32 @@ Provide questions in JSON format:
 
   // ===== Candidate Insights =====
   async generateCandidateInsights(candidateData) {
+    if (this.apiKey === 'mock-key-for-development') {
+      return this.fallbackCandidateInsights(candidateData);
+    }
+
     try {
       const { skills, experience, education, projects } = candidateData;
       
       const prompt = `
-        Analyze this candidate profile and provide insights:
+        Analyze this candidate profile and provide a detailed, professional, and actionable report.
         
         Skills: ${skills.join(', ')}
         Experience: ${JSON.stringify(experience)}
         Education: ${JSON.stringify(education)}
         Projects: ${JSON.stringify(projects || [])}
         
-        Provide insights in these areas:
+        Provide the report with clear markdown headings for:
         1. Strengths and unique capabilities
-        2. Areas for development
+        2. Areas for development/skill gaps
         3. Recommended roles/career path
-        4. Missing skills for senior roles
-        5. Cultural fit assessment
-        
-        Be constructive and professional.
+        4. Cultural fit assessment
+        5. 3 Actionable next steps
       `;
 
-      const systemInstruction = "You are an expert career counselor and talent analyst.";
+      const systemInstruction = "You are an expert career counselor and talent analyst. Respond with a well-formatted Markdown report.";
       
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'text');
+      const response = await this.callGeminiAI(prompt, systemInstruction, null, [], { temperature: 0.7 });
       
       return response;
     } catch (error) {
@@ -363,12 +495,12 @@ Provide questions in JSON format:
 
   // ===== AI Report Generation =====
   async generateAIReport(analysisData, userProfile) {
-    try {
-      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'mock-key-for-development') {
-        return this.mockAIReport(analysisData, userProfile);
-      }
+    if (this.apiKey === 'mock-key-for-development') {
+      return this.mockAIReport(analysisData, userProfile);
+    }
 
-      const prompt = `Generate a comprehensive career analysis report based on this resume analysis:
+    try {
+      const prompt = `Generate a comprehensive, client-facing career analysis report based on this detailed resume analysis. Use professional and encouraging language.
 
 RESUME ANALYSIS DATA:
 ${JSON.stringify(analysisData, null, 2)}
@@ -377,24 +509,20 @@ USER PROFILE:
 Name: ${userProfile.fullName || 'Candidate'}
 Email: ${userProfile.email || 'Not provided'}
 Skills: ${JSON.stringify(userProfile.skills || [])}
-Experience: ${JSON.stringify(userProfile.experience || [])}
-Education: ${JSON.stringify(userProfile.education || [])}
 
-Please provide a detailed, well-structured report with the following sections:
-1. EXECUTIVE SUMMARY
-2. SKILLS ASSESSMENT
-3. EXPERIENCE EVALUATION
-4. CAREER FIT ANALYSIS
-5. SKILL GAPS IDENTIFIED
-6. LEARNING RECOMMENDATIONS
-7. MARKET TRENDS & OPPORTUNITIES
-8. 30/60/90 DAY ACTION PLAN
+Please provide a detailed, well-structured report using clear **Markdown headings and bullet points**. Include the following sections:
+1. EXECUTIVE SUMMARY (Overall Grade and Score)
+2. SKILLS ASSESSMENT (Technical, Soft, and Gaps)
+3. EXPERIENCE EVALUATION (Progression, Metrics, and Recommendations)
+4. ATS & KEYWORD FIT ANALYSIS
+5. CAREER PATH & SALARY RECOMMENDATIONS
+6. 30/60/90 DAY ACTION PLAN (Specific, actionable steps)
 
-Make the report professional, actionable, and encouraging. Include specific recommendations.`;
+The response must be in pure, well-formatted Markdown.`;
 
       const systemInstruction = "You are a professional career coach and resume expert. Generate detailed, actionable career analysis reports.";
       
-      const response = await this.callGeminiAI(prompt, systemInstruction, 'text');
+      const response = await this.callGeminiAI(prompt, systemInstruction, null, [], { temperature: 0.8 });
       
       return response;
 
@@ -419,172 +547,40 @@ Make the report professional, actionable, and encouraging. Include specific reco
       if (candidateProfile.experience) {
         prompt += `Experience: ${candidateProfile.experience} years\n`;
       }
-      if (candidateProfile.education) {
-        prompt += `Education: ${JSON.stringify(candidateProfile.education)}\n`;
-      }
     }
     
-    prompt += `\nProvide the analysis in this exact JSON structure:
-{
-  "summary": {
-    "overallScore": 85,
-    "grade": "B+",
-    "summaryText": "Brief summary of the resume analysis"
-  },
-  "extractedSkills": {
-    "technical": ["JavaScript", "React", "Node.js"],
-    "soft": ["Communication", "Leadership"],
-    "missing": ["TypeScript", "Docker"]
-  },
-  "experienceAnalysis": {
-    "totalExperience": 5,
-    "careerProgression": true,
-    "achievementsHighlighted": true,
-    "gaps": [],
-    "recommendations": ["Add metrics to achievements"]
-  },
-  "educationAnalysis": {
-    "degrees": ["Bachelor of Science"],
-    "certifications": [],
-    "strengths": ["Good education"],
-    "improvements": ["Add certifications"]
-  },
-  "keywordAnalysis": {
-    "atsScore": 75,
-    "missingKeywords": ["Agile", "Scrum"],
-    "recommendedKeywords": ["DevOps", "Cloud"]
-  },
-  "careerRecommendations": {
-    "suitableRoles": ["Frontend Developer"],
-    "industries": ["Tech"],
-    "nextSteps": ["Learn new skills"],
-    "salaryRange": "$80,000 - $120,000"
-  },
-  "aiInsights": {
-    "strengths": ["Strong skills"],
-    "weaknesses": ["Limited experience"],
-    "opportunities": ["High demand"],
-    "threats": ["Competition"]
-  },
-  "improvementSuggestions": ["Improve resume", "Add projects"]
-}`;
+    prompt += `\nEnsure the JSON strictly adheres to the provided schema.`;
 
     return prompt;
   }
 
   parseAnalysisResponse(analysis) {
-    try {
-      console.log('Parsing analysis response...');
-      
-      analysis.analyzedAt = new Date().toISOString();
-      analysis.isMock = false;
-      
-      console.log('Successfully parsed analysis response');
-      return analysis;
-      
-    } catch (error) {
-      console.error('Error parsing analysis response:', error);
-      return this.mockResumeAnalysis();
-    }
-  }
-
-  parseInterviewQuestions(questions) {
-    try {
-      return questions;
-    } catch (error) {
-      console.error('Error parsing interview questions:', error);
-      return this.mockInterviewQuestions();
-    }
+    analysis.analyzedAt = new Date().toISOString();
+    analysis.isMock = false;
+    return analysis;
   }
 
   calculateResumeScore(parsedData) {
     let score = 0;
     
-    // Skills (30 points)
-    if (parsedData.skills && parsedData.skills.length >= 5) {
-      score += 30;
-    } else if (parsedData.skills && parsedData.skills.length >= 3) {
-      score += 20;
-    } else if (parsedData.skills && parsedData.skills.length >= 1) {
-      score += 10;
-    }
+    if (parsedData.skills && parsedData.skills.length >= 5) score += 30;
+    else if (parsedData.skills && parsedData.skills.length >= 1) score += 10;
     
-    // Experience (40 points)
-    if (parsedData.experience && parsedData.experience.length >= 3) {
-      score += 40;
-    } else if (parsedData.experience && parsedData.experience.length >= 2) {
-      score += 30;
-    } else if (parsedData.experience && parsedData.experience.length >= 1) {
-      score += 20;
-    }
+    if (parsedData.experience && parsedData.experience.length >= 3) score += 40;
+    else if (parsedData.experience && parsedData.experience.length >= 1) score += 20;
     
-    // Education (20 points)
-    if (parsedData.education && parsedData.education.length >= 2) {
-      score += 20;
-    } else if (parsedData.education && parsedData.education.length >= 1) {
-      score += 15;
-    }
+    if (parsedData.education && parsedData.education.length >= 1) score += 20;
     
-    // Certifications (10 points)
-    if (parsedData.certifications && parsedData.certifications.length >= 2) {
-      score += 10;
-    } else if (parsedData.certifications && parsedData.certifications.length >= 1) {
-      score += 5;
-    }
+    if (parsedData.certifications && parsedData.certifications.length >= 1) score += 10;
     
     return Math.min(score, 100);
-  }
-
-  calculateProfileCompleteness(user) {
-    try {
-      let score = 0;
-      const profile = user.profile || {};
-      
-      // Personal Info (30 points)
-      if (user.fullName && user.fullName.trim().length > 0) score += 10;
-      if (user.email && user.email.includes('@')) score += 5;
-      if (user.mobile && user.mobile.trim().length >= 10) score += 5;
-      if (profile.location && profile.location.trim().length > 0) score += 5;
-      if (profile.bio && profile.bio.trim().length > 50) score += 5;
-      
-      // Skills (20 points)
-      if (profile.skills && Array.isArray(profile.skills) && profile.skills.length > 0) {
-        score += Math.min(20, profile.skills.length * 2);
-      }
-      
-      // Experience (20 points)
-      if (profile.experience && Array.isArray(profile.experience) && profile.experience.length > 0) {
-        score += Math.min(20, profile.experience.length * 5);
-      }
-      
-      // Education (15 points)
-      if (profile.education && Array.isArray(profile.education) && profile.education.length > 0) {
-        score += Math.min(15, profile.education.length * 5);
-      }
-      
-      // Projects (10 points)
-      if (profile.projects && Array.isArray(profile.projects) && profile.projects.length > 0) {
-        score += Math.min(10, profile.projects.length * 3);
-      }
-      
-      // Resume (5 points)
-      if (profile.resume && profile.resume.url) {
-        score += 5;
-      }
-      
-      return Math.min(100, score);
-    } catch (error) {
-      console.error('Error calculating profile completeness:', error);
-      return 0;
-    }
   }
 
   extractSkillsFromText(text) {
     const commonSkills = [
       'JavaScript', 'React', 'Node.js', 'Python', 'Java', 'HTML', 'CSS',
-      'MongoDB', 'Express', 'TypeScript', 'Git', 'GitHub', 'AWS', 'Docker',
-      'Kubernetes', 'SQL', 'NoSQL', 'REST', 'API', 'GraphQL', 'Redux',
-      'Vue.js', 'Angular', 'Next.js', 'Firebase', 'Azure', 'Google Cloud'
+      'MongoDB', 'Express', 'TypeScript', 'Git', 'AWS', 'Docker',
+      'Kubernetes', 'SQL', 'REST', 'API', 'GraphQL', 'Redux'
     ];
     
     const foundSkills = [];
@@ -597,18 +593,17 @@ Make the report professional, actionable, and encouraging. Include specific reco
     });
     
     return foundSkills.length > 0 ? foundSkills : 
-           ['JavaScript', 'React', 'HTML', 'CSS', 'Node.js'];
+             ['JavaScript', 'React', 'HTML', 'CSS', 'Node.js'];
   }
 
-  // ===== Fallback Methods =====
+  // ===== Fallback/Mock Methods =====
   fallbackResumeAnalysis(resumeContent) {
-    console.log('Using fallback resume analysis');
     return {
       text: resumeContent,
       parsedData: {
-        skills: this.extractSkillsBasic(resumeContent),
-        experience: this.extractExperienceBasic(resumeContent),
-        education: this.extractEducationBasic(resumeContent),
+        skills: this.extractSkillsFromText(resumeContent),
+        experience: [{ company: 'Previous Company', title: 'Developer', duration: '2 years', description: 'Software development role' }],
+        education: [{ institution: 'University', degree: 'Bachelor\'s Degree', year: '2020' }],
         certifications: [],
         summary: "Experienced professional with relevant skills."
       },
@@ -619,8 +614,6 @@ Make the report professional, actionable, and encouraging. Include specific reco
   }
 
   mockResumeAnalysis(resumeText = '') {
-    console.log('Using mock resume analysis');
-    
     const extractedTechSkills = this.extractSkillsFromText(resumeText);
     
     return {
@@ -630,9 +623,8 @@ Make the report professional, actionable, and encouraging. Include specific reco
         summaryText: "A well-structured resume showing good experience in web development. Could be improved with more quantifiable achievements and specific technical details."
       },
       extractedSkills: {
-        technical: extractedTechSkills.length > 0 ? extractedTechSkills : 
-                   ['JavaScript', 'React', 'HTML/CSS', 'Node.js', 'MongoDB'],
-        soft: ['Communication', 'Teamwork', 'Problem Solving', 'Time Management'],
+        technical: extractedTechSkills.length > 0 ? extractedTechSkills : ['JavaScript', 'React', 'HTML/CSS', 'Node.js', 'MongoDB'],
+        soft: ['Communication', 'Teamwork', 'Problem Solving'],
         missing: ['TypeScript', 'Docker', 'AWS', 'GraphQL']
       },
       experienceAnalysis: {
@@ -640,67 +632,32 @@ Make the report professional, actionable, and encouraging. Include specific reco
         careerProgression: Math.random() > 0.3,
         achievementsHighlighted: Math.random() > 0.5,
         gaps: Math.random() > 0.7 ? ['1 month gap in 2022'] : [],
-        recommendations: [
-          "Add more metrics to quantify achievements",
-          "Use action verbs to start bullet points",
-          "Include specific project outcomes and impacts"
-        ]
+        recommendations: ["Add metrics to quantify achievements", "Use action verbs to start bullet points"]
       },
       educationAnalysis: {
         degrees: ['Bachelor of Science in Computer Science'],
         certifications: Math.random() > 0.5 ? ['AWS Certified Cloud Practitioner'] : [],
-        strengths: ['Strong educational foundation in computer science'],
-        improvements: [
-          "Consider adding relevant certifications",
-          "Include GPA if above 3.5",
-          "Add relevant coursework"
-        ]
+        strengths: ['Strong educational foundation'],
+        improvements: ["Consider adding relevant certifications"]
       },
       keywordAnalysis: {
         atsScore: Math.floor(Math.random() * 30) + 65,
-        missingKeywords: ['Agile', 'Scrum', 'DevOps', 'CI/CD'],
-        recommendedKeywords: ['React Hooks', 'REST APIs', 'Responsive Design', 'Version Control']
+        missingKeywords: ['Agile', 'Scrum', 'DevOps'],
+        recommendedKeywords: ['React Hooks', 'REST APIs', 'Responsive Design']
       },
       careerRecommendations: {
-        suitableRoles: ['Frontend Developer', 'Full Stack Developer', 'Web Developer'],
-        industries: ['Technology', 'E-commerce', 'Finance', 'Healthcare'],
-        nextSteps: [
-          "Learn TypeScript for better type safety",
-          "Build a full-stack project with authentication",
-          "Contribute to open source projects",
-          "Get certified in a cloud platform"
-        ],
+        suitableRoles: ['Frontend Developer', 'Full Stack Developer'],
+        industries: ['Technology', 'E-commerce'],
+        nextSteps: ["Learn TypeScript", "Build a full-stack project"],
         salaryRange: `₹${(Math.floor(Math.random() * 10) + 6)} - ₹${(Math.floor(Math.random() * 10) + 15)} LPA`
       },
       aiInsights: {
-        strengths: [
-          "Strong foundation in modern web technologies",
-          "Good mix of frontend and backend skills",
-          "Project-based learning approach"
-        ],
-        weaknesses: [
-          "Limited experience with testing frameworks",
-          "No mention of version control best practices",
-          "Could benefit from more specialized skills"
-        ],
-        opportunities: [
-          "High demand for React developers",
-          "Growing remote work opportunities",
-          "Potential for career growth into senior roles"
-        ],
-        threats: [
-          "Increasing competition in the job market",
-          "Rapid technology changes requiring constant learning",
-          "Need for specialized skills in competitive markets"
-        ]
+        strengths: ["Strong foundation in modern web technologies"],
+        weaknesses: ["Limited experience with testing frameworks"],
+        opportunities: ["High demand for React developers"],
+        threats: ["Increasing competition in the job market"]
       },
-      improvementSuggestions: [
-        "Add a professional summary at the top",
-        "Quantify achievements with numbers and percentages",
-        "Include links to GitHub repositories and live projects",
-        "Tailor resume for specific job applications",
-        "Add a skills matrix with proficiency levels"
-      ],
+      improvementSuggestions: ["Add a professional summary", "Quantify achievements with numbers"],
       analyzedAt: new Date().toISOString(),
       isMock: true
     };
@@ -708,32 +665,15 @@ Make the report professional, actionable, and encouraging. Include specific reco
 
   fallbackJobDescription(data) {
     const { title, skills, experience, companyName } = data;
-    
     return `
-      ${title}
+      # ${title} at ${companyName}
       
-      We are looking for a talented ${title} to join our team at ${companyName}.
+      ## Job Overview
+      We are looking for a talented ${title} with ${experience}+ years of experience to join our innovative team at ${companyName}.
       
-      Responsibilities:
-      - Develop and maintain high-quality software solutions
-      - Collaborate with cross-functional teams
-      - Participate in code reviews and technical discussions
-      - Stay updated with emerging technologies
-      
-      Requirements:
-      - ${experience}+ years of professional experience
+      ## Requirements
       - Proficiency in ${skills.slice(0, 3).join(', ')}
-      - Strong problem-solving skills
-      - Excellent communication abilities
-      
-      Benefits:
-      - Competitive salary and benefits package
-      - Flexible work arrangements
-      - Professional development opportunities
-      - Collaborative work environment
-      
-      About ${companyName}:
-      Join us and be part of an innovative team that values creativity and technical excellence!
+      - ${experience}+ years of relevant experience.
     `;
   }
 
@@ -741,19 +681,8 @@ Make the report professional, actionable, and encouraging. Include specific reco
     return `
       Technical Questions:
       1. Explain your experience with ${candidateSkills[0] || 'relevant technologies'}.
-      2. How do you approach debugging complex issues?
-      
       Behavioral Questions:
       1. Tell me about a challenging project you worked on.
-      2. How do you handle conflicting priorities?
-      
-      Scenario Questions:
-      1. How would you design a scalable system for high traffic?
-      2. Describe your process for code review.
-      
-      Cultural Fit:
-      1. What motivates you to do your best work?
-      2. How do you contribute to team success?
     `;
   }
 
@@ -761,20 +690,17 @@ Make the report professional, actionable, and encouraging. Include specific reco
     return {
       technical: [
         "Explain the difference between let, const, and var in JavaScript",
-        "What are React hooks and how do they work?",
-        "How would you optimize a slow React application?",
-        "Explain REST API principles and best practices"
+        "What are React hooks and how do they work?"
       ],
       behavioral: [
         "Tell me about a challenging project you worked on",
-        "How do you handle conflicts in a team?",
-        "Describe a time you had to learn a new technology quickly"
+        "How do you handle conflicts in a team?"
       ],
       scenarioBased: [
         "How would you design a real-time chat application?",
         "What would you do if a production bug is reported?"
       ],
-      companySpecific: [
+      culturalFit: [
         "Why do you want to work at our company?"
       ]
     };
@@ -784,116 +710,39 @@ Make the report professional, actionable, and encouraging. Include specific reco
     const { skills = [] } = candidateData;
     
     return `
-      Candidate Analysis:
+      # Candidate Analysis - Fallback
       
-      Strengths:
+      ## Strengths:
       - Strong technical background in ${skills.slice(0, 2).join(', ')}
-      - Good communication skills
-      - Team player with collaborative mindset
       
-      Areas for Development:
+      ## Areas for Development:
       - Could benefit from more leadership experience
-      - Expand knowledge in emerging technologies
       
-      Recommended Roles:
+      ## Recommended Roles:
       - Senior Developer
-      - Technical Lead
-      - Solution Architect
-      
-      Missing Skills:
-      - Advanced cloud architecture
-      - Team management experience
-      
-      Cultural Fit:
-      - Appears to be a good fit for collaborative environments
-      - Shows potential for leadership roles
     `;
   }
 
   mockAIReport(analysisData, userProfile) {
     return `
-# AI CAREER ANALYSIS REPORT
+# AI CAREER ANALYSIS REPORT (MOCK)
 ## Generated on: ${new Date().toLocaleDateString()}
 
 ## EXECUTIVE SUMMARY
-Based on analysis of your resume, you have ${analysisData.experienceAnalysis?.totalExperience || 3} years of experience with ${analysisData.extractedSkills?.technical?.length || 5} technical skills. Your profile shows potential for growth in the technology sector.
+Based on mock analysis, your profile suggests you are a **${analysisData.summary?.grade || 'B+'}** candidate with an overall score of **${analysisData.summary?.overallScore || 75}**.
 
 ## SKILLS ASSESSMENT
-**Technical Skills Identified**: ${(analysisData.extractedSkills?.technical || []).slice(0, 10).join(', ')}
-**Soft Skills**: ${(analysisData.extractedSkills?.soft || []).join(', ')}
-**Missing Skills to Consider**: ${(analysisData.extractedSkills?.missing || []).join(', ')}
-
-## EXPERIENCE EVALUATION
-**Total Experience**: ${analysisData.experienceAnalysis?.totalExperience || 3} years
-**Career Progression**: ${analysisData.experienceAnalysis?.careerProgression ? 'Good progression observed' : 'Could show clearer progression'}
-**Key Recommendations**: ${(analysisData.experienceAnalysis?.recommendations || []).join('; ')}
-
-## CAREER FIT ANALYSIS
-**Recommended Roles**: ${(analysisData.careerRecommendations?.suitableRoles || []).join(', ')}
-**Suitable Industries**: ${(analysisData.careerRecommendations?.industries || []).join(', ')}
-**Expected Salary Range**: ${analysisData.careerRecommendations?.salaryRange || '₹6-15 LPA'}
-
-## SKILL GAPS IDENTIFIED
-${(analysisData.extractedSkills?.missing || []).map(skill => `- ${skill}`).join('\n')}
-
-## LEARNING RECOMMENDATIONS
-1. **Immediate (30 days)**: Complete one online course in your primary skill area
-2. **Short-term (60 days)**: Build a portfolio project showcasing your expertise
-3. **Long-term (90 days)**: Obtain a relevant certification
-
-## MARKET TRENDS & OPPORTUNITIES
-- High demand for ${analysisData.extractedSkills?.technical?.[0] || 'web development'} skills
-- Growing remote work opportunities
-- Increasing need for cloud and DevOps skills
+**Technical Skills**: ${(analysisData.extractedSkills?.technical || []).slice(0, 5).join(', ')}
+**Skill Gaps**: ${(analysisData.extractedSkills?.missing || []).join(', ')}
 
 ## 30/60/90 DAY ACTION PLAN
-**First 30 Days**:
-- Update LinkedIn profile with new skills
-- Complete one relevant online course
-- Network with 10+ professionals in your target industry
-
-**Days 31-60**:
-- Build and deploy a portfolio project
-- Attend 2-3 industry webinars or meetups
-- Update resume with quantifiable achievements
-
-**Days 61-90**:
-- Apply to 15+ targeted job positions
-- Prepare for technical interviews
-- Consider obtaining a certification
+**First 30 Days**: Complete one relevant online course.
+**Days 31-60**: Build and deploy a portfolio project.
+**Days 61-90**: Apply to 15+ targeted job positions.
 
 ---
-*This report was generated using AI analysis. For personalized career coaching, consider consulting with a professional career advisor.*
+*This is a mock report used due to missing API key.*
 `;
-  }
-
-  extractSkillsBasic(text) {
-    const commonSkills = [
-      'JavaScript', 'Python', 'Java', 'React', 'Node.js', 'AWS', 
-      'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'TypeScript', 'HTML', 
-      'CSS', 'Git', 'REST API', 'GraphQL', 'Machine Learning', 'AI'
-    ];
-    
-    return commonSkills.filter(skill => 
-      text.toLowerCase().includes(skill.toLowerCase())
-    );
-  }
-
-  extractExperienceBasic(text) {
-    return [{
-      company: 'Previous Company',
-      title: 'Developer',
-      duration: '2 years',
-      description: 'Software development role'
-    }];
-  }
-
-  extractEducationBasic(text) {
-    return [{
-      institution: 'University',
-      degree: 'Bachelor\'s Degree',
-      year: '2020'
-    }];
   }
 }
 
