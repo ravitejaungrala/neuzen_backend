@@ -1,4 +1,4 @@
-// backend/controllers/candidateProfileController.js
+// backend/controllers/candidateProfileController.js - FIXED VERSION
 import User from '../models/User.js';
 import AIService from '../services/aiService.js';
 import fs from 'fs/promises';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get candidate profile
+// Get candidate profile - FIXED VERSION
 export const getCandidateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -23,7 +23,7 @@ export const getCandidateProfile = async (req, res) => {
       });
     }
     
-    // Calculate profile completeness
+    // Calculate profile completeness - This was missing in AIService
     const profileCompleteness = AIService.calculateProfileCompleteness(user);
     
     // Ensure profile structure exists
@@ -209,6 +209,7 @@ export const uploadCandidateResume = async (req, res) => {
     });
   }
 };
+
 // Get AI Analysis Report
 export const getAIAnalysisReport = async (req, res) => {
   try {
