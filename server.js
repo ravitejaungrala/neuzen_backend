@@ -167,6 +167,7 @@ app.use('/api/hr/ai', hrAIAnalysisRoutes);
 app.use('/api/test', testimonalRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/hr/aicandidate', hrAICandidateRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // ================== 404 HANDLER ==================
 app.use('/api/*', (req, res) => {
