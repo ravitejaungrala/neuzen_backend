@@ -1,3 +1,4 @@
+// backend/services/aiService.js - Updated with missing function
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -41,7 +42,7 @@ class AIService {
     this.apiKey = process.env.GEMINI_API_KEY || 'mock-key-for-development';
     this.genAI = new GoogleGenerativeAI(this.apiKey);
     // ✅ FIX: Updated model name to the current public and generally free-tier model
-    this.modelName = "gemini-2.5-flash"; 
+    this.modelName = "gemini-2.5-flash"; 
   }
 
   // --- JSON Schema for Basic Resume Parsing ---
@@ -304,6 +305,52 @@ class AIService {
       return `[${fileType.toUpperCase()} file - extraction failed]`;
     }
   }
+
+  // ===== CORE FIX: Added missing function =====
+  /**
+   * Calculates the profile completeness percentage based on key fields.
+   * @param {object} user The user object containing the profile data.
+   * @returns {number} The profile completeness percentage (0-100).
+   */
+  calculateProfileCompleteness(user) {
+    let score = 0;
+    const totalPoints = 100;
+    const profile = user.profile || {};
+
+    // Points distribution (adjust as needed)
+    const points = {
+      fullName: 10,
+      email: 5,
+      mobile: 5,
+      location: 10,
+      bio: 5,
+      linkedin: 5,
+      github: 5,
+      resume: 10,
+      education: 15, // Max 15 points
+      experience: 15, // Max 15 points
+      skills: 10, // Max 10 points
+      projects: 5, // Max 5 points
+    };
+
+    if (user.fullName) score += points.fullName;
+    if (user.email) score += points.email;
+    if (user.mobile) score += points.mobile;
+    if (profile.location) score += points.location;
+    if (profile.bio) score += points.bio;
+    if (profile.linkedin) score += points.linkedin;
+    if (profile.github) score += points.github;
+    if (profile.resume?.url) score += points.resume;
+
+    // List checks (must have at least one entry)
+    if (Array.isArray(profile.education) && profile.education.length > 0) score += points.education;
+    if (Array.isArray(profile.experience) && profile.experience.length > 0) score += points.experience;
+    if (Array.isArray(profile.skills) && profile.skills.length > 0) score += points.skills;
+    if (Array.isArray(profile.projects) && profile.projects.length > 0) score += points.projects;
+
+    return Math.min(Math.round(score), totalPoints);
+  }
+  // ===== End of CORE FIX =====
 
   // ===== Resume Analysis Methods (NO CHANGES NEEDED) =====
   
