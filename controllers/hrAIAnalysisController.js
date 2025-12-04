@@ -1,9 +1,10 @@
+// backend/controllers/hrAIAnalysisController.js - COMPLETE FIXED VERSION
 import AIService from '../services/aiService.js';
 import HRAIService from '../services/hrAIService.js';
 import Candidate from '../models/Candidate.js';
 import User from '../models/User.js';
 import path from 'path';
-import fs from 'fs';  // Changed from 'fs/promises'
+import fs from 'fs';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,11 +13,9 @@ const storage = multer.diskStorage({
   destination: async function (req, file, cb) {
     const uploadDir = 'uploads/resumes/';
     
-    // Create directory if it doesn't exist - using promise-based method
     try {
       await fs.promises.access(uploadDir);
     } catch (error) {
-      // Directory doesn't exist, create it
       await fs.promises.mkdir(uploadDir, { recursive: true });
     }
     
@@ -68,7 +67,6 @@ export const uploadAndAnalyzeResume = [
         resumeText = await AIService.extractTextFromFile(req.file.path, path.extname(req.file.originalname));
       } catch (extractError) {
         console.error('Error extracting text:', extractError);
-        // For testing, use sample text
         resumeText = `Resume for ${candidateName || 'Candidate'}
 Email: ${candidateEmail || 'candidate@example.com'}
 Skills: JavaScript, React, Node.js, TypeScript, AWS
@@ -97,7 +95,7 @@ Education: Bachelor of Computer Science`;
         data: {
           analysis,
           fileInfo,
-          resumeText: resumeText.substring(0, 500) + '...', // Send preview
+          resumeText: resumeText.substring(0, 500) + '...',
           generatedAt: new Date().toISOString()
         }
       });
@@ -183,10 +181,63 @@ Skills: ${user.profile?.skills?.map(s => s.name).join(', ') || 'No skills listed
   }
 };
 
-// Get AI insights for candidate
+// Get AI insights for candidate - FIXED TO HANDLE "screening"
 export const getCandidateAIInsights = async (req, res) => {
   try {
     const { candidateId } = req.params;
+    
+    console.log('Getting AI insights for candidateId:', candidateId);
+    
+    // FIX: Handle "screening" case - return empty insights for upload page
+    if (candidateId === 'screening') {
+      return res.json({
+        status: 'success',
+        data: {
+          insights: {
+            overallScore: 0,
+            summary: "Welcome to AI Screening. Upload resumes to get started with AI-powered analysis.",
+            strengths: [],
+            weaknesses: [],
+            skillsGapAnalysis: {
+              strongSkills: [],
+              missingSkills: [],
+              developmentAreas: []
+            },
+            culturalFit: {
+              score: 0,
+              traits: [],
+              recommendedEnvironments: []
+            },
+            careerProgression: {
+              potentialRoles: [],
+              timeline: "",
+              developmentPath: ""
+            },
+            interviewRecommendations: {
+              technicalQuestions: [],
+              behavioralQuestions: [],
+              redFlagsToWatch: []
+            },
+            compensationAnalysis: {
+              marketRate: "",
+              valueProposition: "",
+              negotiationTips: []
+            },
+            analyzedAt: new Date().toISOString(),
+            isScreening: true
+          },
+          candidate: null
+        }
+      });
+    }
+    
+    // Check if candidateId is a valid ObjectId
+    if (!candidateId || candidateId.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(candidateId)) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Invalid candidate ID format' 
+      });
+    }
     
     const candidate = await Candidate.findById(candidateId).populate('userId');
     if (!candidate) {
@@ -224,6 +275,57 @@ export const getCandidateAIInsights = async (req, res) => {
       status: 'error',
       message: 'Error getting AI insights',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Add a separate endpoint for screening page
+export const getScreeningInsights = async (req, res) => {
+  try {
+    return res.json({
+      status: 'success',
+      data: {
+        insights: {
+          overallScore: 0,
+          summary: "Upload resumes for AI-powered screening and analysis",
+          strengths: [],
+          weaknesses: [],
+          skillsGapAnalysis: {
+            strongSkills: [],
+            missingSkills: [],
+            developmentAreas: []
+          },
+          culturalFit: {
+            score: 0,
+            traits: [],
+            recommendedEnvironments: []
+          },
+          careerProgression: {
+            potentialRoles: [],
+            timeline: "",
+            developmentPath: ""
+          },
+          interviewRecommendations: {
+            technicalQuestions: [],
+            behavioralQuestions: [],
+            redFlagsToWatch: []
+          },
+          compensationAnalysis: {
+            marketRate: "",
+            valueProposition: "",
+            negotiationTips: []
+          },
+          analyzedAt: new Date().toISOString(),
+          isScreening: true
+        },
+        candidate: null
+      }
+    });
+  } catch (error) {
+    console.error('Get screening insights error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error getting screening insights'
     });
   }
 };
