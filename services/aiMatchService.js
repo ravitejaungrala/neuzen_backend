@@ -1,19 +1,50 @@
-// backend/services/aiMatchService.js - UPDATED COMPREHENSIVE VERSION
-import OpenAI from 'openai';
+// backend/services/aiMatchService.js - UPDATED WITH GEMINI AI
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 class AIMatchService {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     this.cache = new Map();
     this.CACHE_TTL = {
       SHORT: 1800000, // 30 minutes
       LONG: 3600000   // 1 hour
     };
+  }
+
+  // Helper method to call Gemini AI
+  async callGeminiAI(prompt, systemInstruction = null, responseFormat = 'text') {
+    try {
+      const model = this.genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: systemInstruction
+      });
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      
+      if (responseFormat === 'json') {
+        try {
+          // Clean the response text to extract JSON
+          const text = response.text();
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+          }
+          return { error: "Could not parse JSON response" };
+        } catch (parseError) {
+          console.error('JSON parsing error:', parseError);
+          return { error: "Invalid JSON response" };
+        }
+      }
+      
+      return response.text();
+    } catch (error) {
+      console.error('Gemini AI API error:', error);
+      throw error;
+    }
   }
 
   // ==================== NEW: Dynamic Search Criteria Matching ====================
@@ -206,24 +237,11 @@ class AIMatchService {
       prompt += `\nCANDIDATE PROFILE:\n${candidateText}\n\n`;
       prompt += `Provide analysis in this JSON format:\n{\n  "overallScore": number,\n  "insights": [string],\n  "strengths": [string],\n  "suggestions": [string]\n}`;
 
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert HR recruiter analyzing candidate suitability against search criteria."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-        response_format: { type: "json_object" }
-      });
-
-      return JSON.parse(response.choices[0].message.content);
+      const systemInstruction = "You are an expert HR recruiter analyzing candidate suitability against search criteria. Always respond with valid JSON.";
+      
+      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
+      
+      return response;
     } catch (error) {
       console.error('Dynamic AI analysis error:', error);
       return {
@@ -518,34 +536,19 @@ class AIMatchService {
       }
       `;
 
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert HR recruiter and talent acquisition specialist. Analyze candidate-job matches objectively."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-        response_format: { type: "json_object" }
-      });
-
-      const aiResponse = JSON.parse(response.choices[0].message.content);
+      const systemInstruction = "You are an expert HR recruiter and talent acquisition specialist. Analyze candidate-job matches objectively. Always respond with valid JSON.";
+      
+      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
       
       return {
-        overallScore: aiResponse.overallScore || basicScore.overall,
-        insights: aiResponse.insights || [],
-        strengths: aiResponse.strengths || [],
-        weaknesses: aiResponse.weaknesses || [],
-        suggestions: aiResponse.suggestions || []
+        overallScore: response.overallScore || basicScore.overall,
+        insights: response.insights || [],
+        strengths: response.strengths || [],
+        weaknesses: response.weaknesses || [],
+        suggestions: response.suggestions || []
       };
     } catch (error) {
-      console.error('OpenAI API error:', error);
+      console.error('Gemini AI API error:', error);
       return this.getFallbackJobAIAnalysis(candidate, job, basicScore);
     }
   }
@@ -842,24 +845,11 @@ class AIMatchService {
       }
       `;
 
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert career coach and talent analyst. Provide objective, constructive feedback."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 800,
-        response_format: { type: "json_object" }
-      });
-
-      return JSON.parse(response.choices[0].message.content);
+      const systemInstruction = "You are an expert career coach and talent analyst. Provide objective, constructive feedback. Always respond with valid JSON.";
+      
+      const response = await this.callGeminiAI(prompt, systemInstruction, 'json');
+      
+      return response;
     } catch (error) {
       console.error('Candidate insights generation error:', error);
       return this.getFallbackCandidateInsights(candidate);
