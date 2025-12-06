@@ -17,7 +17,7 @@ import {
   checkMobile,
   requestPhoneOTP,      // Add this
   verifyPhoneOTP,       // Add this
-  testEmail             // Add this
+          // Add this
 } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -39,7 +39,7 @@ router.get('/check-mobile', checkMobile);
 // Development/testing routes
 router.post('/request-phone-otp', requestPhoneOTP);
 router.post('/verify-phone-otp', verifyPhoneOTP);
-router.post('/test-email', testEmail);
+
 
 // Protected routes (require authentication)
 router.use(protect);
