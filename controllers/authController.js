@@ -1,4 +1,4 @@
-backend/controllers/authController.js
+
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
