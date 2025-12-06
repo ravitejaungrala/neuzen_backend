@@ -1339,3 +1339,139 @@ export const checkMobile = async (req, res) => {
     });
   }
 };
+// Add to backend/controllers/authController.js
+
+// Request OTP for phone (for development/testing)
+export const requestPhoneOTP = async (req, res) => {
+  try {
+    const { mobile, countryCode } = req.body;
+
+    if (!mobile) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Mobile number is required' 
+      });
+    }
+
+    // Mobile validation
+    const mobileRegex = /^[0-9]{10}$/;
+    if (!mobileRegex.test(mobile)) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Please enter a valid 10-digit mobile number' 
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ mobile });
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'No account found with this mobile number. Please sign up first.' 
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        status: 'error',
+        message: 'Account has been deactivated. Please contact support.' 
+      });
+    }
+
+    // Generate and store OTP
+    const otp = OTPService.generateOTP();
+    
+    // Store with mobile as key for phone OTP
+    const emailKey = `phone-${mobile}`;
+    OTPService.storeOTP(emailKey, otp);
+
+    console.log(`✅ Phone OTP generated for ${countryCode}${mobile}: ${otp}`);
+    console.log(`ℹ️  In development mode, OTP is: ${otp}`);
+    console.log(`ℹ️  In production, this would send SMS via Firebase to ${countryCode}${mobile}`);
+
+    const remainingTime = OTPService.getRemainingTime(emailKey);
+
+    res.json({
+      status: 'success',
+      message: 'OTP sent successfully! (Development Mode)',
+      data: {
+        remainingTime,
+        mobile: mobile,
+        countryCode: countryCode,
+        otp: otp, // Only in development
+        note: 'In development mode, OTP is shown here. In production, it would be sent via SMS.'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Phone OTP request error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error sending OTP. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Verify phone OTP (for development/testing)
+export const verifyPhoneOTP = async (req, res) => {
+  try {
+    const { mobile, otp } = req.body;
+
+    if (!mobile || !otp) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Mobile number and OTP are required' 
+      });
+    }
+
+    // OTP validation
+    if (otp.length !== 6 || !/^\d+$/.test(otp)) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Please enter a valid 6-digit OTP' 
+      });
+    }
+
+    const user = await User.findOne({ mobile });
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'User not found' 
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        status: 'error',
+        message: 'Account has been deactivated. Please contact support.' 
+      });
+    }
+
+    // Verify OTP using mobile as key
+    const emailKey = `phone-${mobile}`;
+    const verification = OTPService.verifyOTP(emailKey, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: verification.message 
+      });
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    console.log(`✅ Phone OTP verification successful for: ${mobile}`);
+
+    createSendToken(user, 200, res);
+  } catch (error) {
+    console.error('❌ Phone OTP verification error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error verifying OTP. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
