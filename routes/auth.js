@@ -14,9 +14,10 @@ import {
   refreshToken,
   logout,
   checkEmail,
-  checkMobile.
-  requestPhoneOTP,
-  verifyPhoneOTP
+  checkMobile,
+  requestPhoneOTP,      // Add this
+  verifyPhoneOTP,       // Add this
+  testEmail             // Add this
 } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -35,13 +36,15 @@ router.post('/logout', logout);
 router.get('/check-email', checkEmail);
 router.get('/check-mobile', checkMobile);
 
-// Protected routes
+// Development/testing routes
+router.post('/request-phone-otp', requestPhoneOTP);
+router.post('/verify-phone-otp', verifyPhoneOTP);
+router.post('/test-email', testEmail);
+
+// Protected routes (require authentication)
 router.use(protect);
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.put('/change-password', changePassword);
-// Add these to the public routes section
-router.post('/request-phone-otp', requestPhoneOTP);
-router.post('/verify-phone-otp', verifyPhoneOTP);
 
 export default router;
