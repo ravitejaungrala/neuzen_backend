@@ -890,3 +890,205 @@ export const testEmail = async (req, res) => {
     });
   }
 }
+// backend/controllers/authController.js
+// Add these new functions to the existing controller:
+
+// Request password reset OTP
+export const requestPasswordResetOTP = async (req, res) => {
+  try {
+    const { email, mobile, countryCode = '+91', method = 'email' } = req.body;
+
+    if (!email && !mobile) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Email or mobile required' 
+      });
+    }
+
+    let user;
+    if (method === 'email') {
+      user = await User.findOne({ email });
+    } else {
+      user = await User.findOne({ mobile });
+    }
+
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'User not found' 
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        status: 'error',
+        message: 'Account deactivated' 
+      });
+    }
+
+    const otp = OTPService.generateOTP();
+    const identifier = method === 'email' ? `reset-email-${email}` : `reset-phone-${mobile}`;
+    
+    OTPService.storeOTP(identifier, otp);
+
+    if (method === 'email') {
+      // Send email OTP
+      const emailSent = await EmailService.sendPasswordResetOTP(email, user.fullName, otp);
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📧 Password Reset OTP for', email, ':', otp);
+      }
+
+      res.json({
+        status: 'success',
+        message: 'Password reset OTP sent to email',
+        data: {
+          email: email,
+          ...(process.env.NODE_ENV === 'development' && { otp: otp })
+        }
+      });
+    } else {
+      // For mobile, just log in console for development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📱 Password Reset OTP for', `${countryCode}${mobile}`, ':', otp);
+      }
+
+      res.json({
+        status: 'success',
+        message: 'Password reset OTP generated',
+        data: {
+          mobile: mobile,
+          countryCode: countryCode,
+          ...(process.env.NODE_ENV === 'development' && { otp: otp })
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Password reset OTP error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Failed to send OTP'
+    });
+  }
+};
+
+// Verify password reset OTP
+export const verifyPasswordResetOTP = async (req, res) => {
+  try {
+    const { email, mobile, otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'OTP required' 
+      });
+    }
+
+    let identifier;
+    let user;
+    
+    if (email) {
+      identifier = `reset-email-${email}`;
+      user = await User.findOne({ email });
+    } else if (mobile) {
+      identifier = `reset-phone-${mobile}`;
+      user = await User.findOne({ mobile });
+    } else {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Email or mobile required' 
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'User not found' 
+      });
+    }
+
+    const verification = OTPService.verifyOTP(identifier, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: verification.message 
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'OTP verified successfully',
+      data: {
+        verified: true,
+        identifier: identifier
+      }
+    });
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'OTP verification failed'
+    });
+  }
+};
+
+// Reset password with OTP
+export const resetPasswordWithOTP = async (req, res) => {
+  try {
+    const { email, mobile, otp, password } = req.body;
+
+    if (!otp || !password) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'OTP and password required' 
+      });
+    }
+
+    let identifier;
+    let user;
+    
+    if (email) {
+      identifier = `reset-email-${email}`;
+      user = await User.findOne({ email });
+    } else if (mobile) {
+      identifier = `reset-phone-${mobile}`;
+      user = await User.findOne({ mobile });
+    } else {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Email or mobile required' 
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'User not found' 
+      });
+    }
+
+    // Verify OTP one more time
+    const verification = OTPService.verifyOTP(identifier, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: verification.message 
+      });
+    }
+
+    // Update password
+    user.password = password;
+    await user.save();
+
+    res.json({
+      status: 'success',
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Failed to reset password'
+    });
+  }
+};
