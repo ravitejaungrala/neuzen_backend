@@ -325,7 +325,7 @@ const templates = {
 
   // OTP template added to main templates object
   otp: {
-    subject: 'Login OTP - AI Hire Platform',
+    subject: (data) => `Login OTP: ${data.otp} - AI Hire Platform`,
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -361,96 +361,31 @@ const templates = {
   }
 };
 
-// Additional email templates from new service
-const additionalTemplates = {
-  OTP: (name, otp) => `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9f9f9; }
-        .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>AI Hire Platform</h1>
-        <h2>Login Verification</h2>
-      </div>
-      <div class="content">
-        <p>Hello <strong>${name}</strong>,</p>
-        <p>Your OTP for login is:</p>
-        <div class="otp">${otp}</div>
-        <p>This OTP is valid for 10 minutes.</p>
-        <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
-        <p>If you didn't request this OTP, please ignore this email.</p>
-      </div>
-      <div class="footer">
-        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-  `,
-  
-  // New welcome template that matches the old one's structure
-  WELCOME_NEW: (name) => `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9f9f9; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>Welcome to AI Hire Platform!</h1>
-      </div>
-      <div class="content">
-        <p>Hello <strong>${name}</strong>,</p>
-        <p>Welcome to AI Hire Platform - your AI-powered hiring platform!</p>
-        <p>We're excited to have you on board. Start exploring:</p>
-        <ul>
-          <li>AI-powered candidate matching</li>
-          <li>Automated resume screening</li>
-          <li>Smart analytics and insights</li>
-        </ul>
-        <p>If you need help getting started, check out our documentation or contact support.</p>
-      </div>
-      <div class="footer">
-        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-  `
-};
-
-// Special function for sending OTP emails (used by authController)
-export const sendOTPEmail = async (to, name, otp) => {
+// Updated sendEmail function that handles BOTH old and new signatures
+export const sendEmail = async (...args) => {
   try {
-    const result = await sendEmail({
-      to,
-      template: 'otp',
-      data: { name, otp }
-    });
-    return result;
-  } catch (error) {
-    console.error('❌ OTP email sending failed:', error);
-    throw error;
-  }
-};
-
-// Original sendEmail function from old service (with enhanced error handling from new service)
-export const sendEmail = async (options) => {
-  try {
-    const { to, subject, template, data, attachments } = options;
+    // Determine which signature is being used
+    let options;
+    
+    if (args.length === 1 && typeof args[0] === 'object') {
+      // Old signature: sendEmail({ to, template, data, attachments })
+      options = args[0];
+    } else if (args.length >= 2) {
+      // New signature: sendEmail(to, subject, html, text)
+      const [to, subject, html, text] = args;
+      options = { 
+        to, 
+        subject, 
+        html, 
+        text,
+        // Convert new signature to old format
+        data: { html, subject }
+      };
+    } else {
+      throw new Error('Invalid arguments passed to sendEmail');
+    }
+    
+    const { to, subject, template, data, attachments, html: directHtml, text } = options;
     
     // Check if template exists
     let htmlContent;
@@ -460,22 +395,23 @@ export const sendEmail = async (options) => {
       // Use template from old service
       const templateConfig = templates[template];
       htmlContent = templateConfig.html(data);
-      emailSubject = templateConfig.subject;
-    } else if (template && additionalTemplates[template]) {
-      // Use additional template from new service (for OTP, etc.)
-      htmlContent = additionalTemplates[template](...Object.values(data || {}));
-      emailSubject = subject || 'Notification from AI Hire Platform';
-    } else if (options.html) {
-      // Use direct HTML if provided
-      htmlContent = options.html;
+      emailSubject = typeof templateConfig.subject === 'function' 
+        ? templateConfig.subject(data) 
+        : templateConfig.subject;
+    } else if (directHtml) {
+      // Use direct HTML if provided (new signature)
+      htmlContent = directHtml;
       emailSubject = subject || 'Notification from AI Hire Platform';
     } else {
-      // For backward compatibility, allow sending without template for OTP
+      // For backward compatibility, try to auto-detect OTP
       if (data && data.otp && data.name) {
-        // Auto-generate OTP email
-        console.log('⚠️  Using auto-generated OTP email (template not specified)');
-        htmlContent = additionalTemplates.OTP(data.name, data.otp);
-        emailSubject = 'Login OTP - AI Hire Platform';
+        console.log('⚠️  Using auto-generated OTP email');
+        htmlContent = templates.otp.html(data);
+        emailSubject = templates.otp.subject(data);
+      } else if (data && data.html) {
+        // If data contains html, use it
+        htmlContent = data.html;
+        emailSubject = data.subject || subject || 'Notification from AI Hire Platform';
       } else {
         throw new Error(`Template ${template} not found and no HTML provided`);
       }
@@ -484,7 +420,7 @@ export const sendEmail = async (options) => {
     if (!transporter) {
       console.log(`📧 [NO TRANSPORTER] Email would be sent to: ${to}`);
       console.log(`📧 Subject: ${emailSubject}`);
-      console.log(`📧 Template: ${template}`);
+      console.log(`📧 Template: ${template || 'direct'}`);
       return { 
         success: false, 
         message: 'No email transporter configured',
@@ -498,12 +434,12 @@ export const sendEmail = async (options) => {
       subject: emailSubject,
       html: htmlContent,
       attachments,
-      text: htmlContent.replace(/<[^>]*>/g, '') // Convert HTML to text
+      text: text || htmlContent.replace(/<[^>]*>/g, '') // Convert HTML to text
     };
     
     console.log(`📧 Attempting to send email to: ${to}`);
     console.log(`📧 Subject: ${emailSubject}`);
-    console.log(`📧 Template: ${template || 'auto-generated'}`);
+    console.log(`📧 Template: ${template || 'direct'}`);
     
     const info = await transporter.sendMail(mailOptions);
     
@@ -530,6 +466,21 @@ export const sendEmail = async (options) => {
     }
     
     throw error; // Keep original error throwing for backward compatibility
+  }
+};
+
+// Special function for sending OTP emails (used by authController)
+export const sendOTPEmail = async (to, name, otp) => {
+  try {
+    const result = await sendEmail({
+      to,
+      template: 'otp',
+      data: { name, otp }
+    });
+    return result;
+  } catch (error) {
+    console.error('❌ OTP email sending failed:', error);
+    throw error;
   }
 };
 
@@ -635,10 +586,74 @@ export const testEmailConnection = async () => {
   }
 };
 
-// Export templates for external use
+// Export EmailTemplates for external use (this is what your authController is using)
 export const EmailTemplates = {
-  ...templates,
-  ...additionalTemplates
+  OTP: (name, otp) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>AI Hire Platform</h1>
+        <h2>Login Verification</h2>
+      </div>
+      <div class="content">
+        <p>Hello <strong>${name}</strong>,</p>
+        <p>Your OTP for login is:</p>
+        <div class="otp">${otp}</div>
+        <p>This OTP is valid for 10 minutes.</p>
+        <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
+        <p>If you didn't request this OTP, please ignore this email.</p>
+      </div>
+      <div class="footer">
+        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `,
+  
+  WELCOME: (name) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Welcome to AI Hire Platform!</h1>
+      </div>
+      <div class="content">
+        <p>Hello <strong>${name}</strong>,</p>
+        <p>Welcome to AI Hire Platform - your AI-powered hiring platform!</p>
+        <p>We're excited to have you on board. Start exploring:</p>
+        <ul>
+          <li>AI-powered candidate matching</li>
+          <li>Automated resume screening</li>
+          <li>Smart analytics and insights</li>
+        </ul>
+        <p>If you need help getting started, check out our documentation or contact support.</p>
+      </div>
+      <div class="footer">
+        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `
 };
 
 // Default export for backward compatibility
