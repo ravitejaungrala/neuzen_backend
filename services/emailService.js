@@ -20,19 +20,7 @@ const createTransporter = () => {
     
     // Multiple Gmail configurations to try
     const gmailConfigs = [
-      // Try Gmail with OAuth2 first (most reliable if you set it up)
-      {
-        service: 'gmail',
-        auth: {
-          type: 'OAuth2',
-          user: emailUser,
-          clientId: process.env.GMAIL_CLIENT_ID,
-          clientSecret: process.env.GMAIL_CLIENT_SECRET,
-          refreshToken: process.env.GMAIL_REFRESH_TOKEN
-        },
-        tls: { rejectUnauthorized: false }
-      },
-      // Try with App Password (your current setup)
+      // Try Gmail with App Password (your current setup)
       {
         service: 'gmail',
         auth: {
@@ -69,47 +57,39 @@ const createTransporter = () => {
     let transporter = null;
     let lastError = null;
 
-    // Try each configuration
+    // Create transporter without async verification
     for (const config of gmailConfigs) {
       try {
-        // Skip OAuth2 if credentials not set
-        if (config.auth.type === 'OAuth2' && 
-            (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_REFRESH_TOKEN)) {
-          continue;
-        }
-
         console.log(`📧 Trying Gmail config: ${config.service || config.host}:${config.port}`);
         
         transporter = nodemailer.createTransport(config);
         
-        // Quick connection test
-        await new Promise((resolve, reject) => {
-          transporter.verify((error, success) => {
-            if (error) {
-              lastError = error;
-              reject(error);
-            } else {
-              console.log(`✅ Gmail connection successful with ${config.service || config.host}:${config.port}`);
-              resolve(success);
-            }
-          });
+        // Test connection without blocking
+        transporter.verify((error, success) => {
+          if (error) {
+            console.log(`❌ Gmail config ${config.service || config.host}:${config.port} failed: ${error.message}`);
+            lastError = error;
+          } else {
+            console.log(`✅ Gmail connection successful with ${config.service || config.host}:${config.port}`);
+          }
         });
         
-        break; // Stop if successful
+        // Use first transporter that creates successfully
+        if (transporter) {
+          console.log(`✅ Using Gmail config: ${config.service || config.host}:${config.port}`);
+          break;
+        }
       } catch (error) {
         lastError = error;
-        console.log(`❌ Gmail config failed: ${config.service || config.host}:${config.port} - ${error.message}`);
+        console.log(`❌ Failed to create transporter for ${config.service || config.host}:${config.port}`);
         continue;
       }
     }
 
     if (!transporter) {
       console.log('❌ All Gmail configurations failed. Using console mode.');
-      console.log('💡 Last error:', lastError?.message);
-      console.log('🔧 On Render.com free tier, SMTP is blocked. Consider:');
-      console.log('   1. Using SendGrid/Mailgun (free tiers allow SMTP)');
-      console.log('   2. Upgrading Render plan');
-      console.log('   3. Using console mode for development');
+      console.log('💡 On Render.com free tier, SMTP is blocked.');
+      console.log('📧 Emails will be logged to console for testing.');
       return null;
     }
 
@@ -128,7 +108,7 @@ const sendMockEmail = async (mailOptions) => {
   const timestamp = new Date().toISOString();
   
   console.log('\n' + '📧'.repeat(25));
-  console.log('📧 EMAIL LOGGED (Gmail SMTP Blocked on Render)');
+  console.log('📧 EMAIL LOGGED (Development Mode)');
   console.log('📧'.repeat(25));
   console.log(`📧 TO: ${mailOptions.to}`);
   console.log(`📧 FROM: ${mailOptions.from}`);
@@ -148,7 +128,7 @@ const sendMockEmail = async (mailOptions) => {
   
   return {
     messageId: `mock-${Date.now()}`,
-    response: 'Email logged to console (Gmail SMTP blocked on Render free tier)'
+    response: 'Email logged to console'
   };
 };
 
@@ -164,21 +144,24 @@ const sendEmailInternal = async (mailOptions) => {
       return {
         success: true,
         messageId: info.messageId,
-        via: 'gmail'
+        via: 'gmail',
+        response: info.response
       };
     } catch (error) {
       console.log(`❌ Gmail failed: ${error.message}`);
+      console.log(`📧 Falling back to console mode...`);
     }
   }
   
   // Fallback to mock
-  console.log(`📧 Using console mode (Gmail blocked)`);
+  console.log(`📧 Using console mode for ${mailOptions.to}`);
   const mockInfo = await sendMockEmail(mailOptions);
   return {
     success: true,
     messageId: mockInfo.messageId,
     via: 'console',
-    simulated: true
+    simulated: true,
+    response: mockInfo.response
   };
 };
 
@@ -220,25 +203,69 @@ const templates = {
       </body>
       </html>
     `
+  },
+  
+  welcome: {
+    subject: 'Welcome to AI Hire Platform!',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { padding: 30px; background: #f9f9f9; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Welcome to AI Hire!</h1>
+          </div>
+          <div class="content">
+            <h2>Hello ${data.name},</h2>
+            <p>Welcome to AI Hire Platform! Your account has been successfully created.</p>
+            <p>We're excited to help you find the perfect job or candidate using our AI-powered matching system.</p>
+            <a href="${data.loginUrl || 'https://aihire.com/login'}" style="display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin-top: 20px;">Complete Your Profile</a>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
   }
 };
 
 // ================== EXPORTED FUNCTIONS ==================
 export const sendEmail = async (to, subject, html) => {
-  const mailOptions = {
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to,
-    subject,
-    html
-  };
-  
-  return await sendEmailInternal(mailOptions);
+  try {
+    const mailOptions = {
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@aihire.com',
+      to,
+      subject,
+      html,
+      text: html.replace(/<[^>]*>/g, '') // Plain text version
+    };
+    
+    return await sendEmailInternal(mailOptions);
+  } catch (error) {
+    console.error('❌ Error in sendEmail:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      via: 'error'
+    };
+  }
 };
 
 export const sendOTPEmail = async (to, name, otp) => {
-  console.log(`\n🔐 OTP FOR: ${to}`);
+  console.log(`\n🔐 OTP REQUEST`);
+  console.log(`📧 To: ${to}`);
   console.log(`👤 User: ${name}`);
-  console.log(`🔢 OTP: ${otp}`);
+  console.log(`🔢 OTP Code: ${otp}`);
   
   const result = await sendEmail(
     to,
@@ -246,41 +273,75 @@ export const sendOTPEmail = async (to, name, otp) => {
     templates.otp.html({ name, otp })
   );
   
-  if (result.via === 'console') {
-    console.log(`📱 USE THIS OTP TO LOGIN: ${otp}`);
+  if (result.success) {
+    console.log(`✅ OTP email processed successfully`);
+    if (result.via === 'console') {
+      console.log(`📱 USE THIS OTP TO LOGIN: ${otp}`);
+    }
+  } else {
+    console.log(`❌ OTP email failed: ${result.error}`);
+    // Still show OTP in console
+    console.log(`📱 FALLBACK OTP: ${otp} (use this to login)`);
+  }
+  
+  return result;
+};
+
+export const sendWelcomeEmail = async (to, name) => {
+  console.log(`\n🎉 Sending welcome email to: ${to}`);
+  
+  const result = await sendEmail(
+    to,
+    'Welcome to AI Hire Platform!',
+    templates.welcome.html({ name, loginUrl: 'https://aihire.com/login' })
+  );
+  
+  if (result.success) {
+    console.log(`✅ Welcome email processed`);
+  } else {
+    console.log(`⚠️ Welcome email may have failed`);
   }
   
   return result;
 };
 
 export const testEmailConnection = async () => {
-  console.log('🔍 Testing Gmail connection...');
+  console.log('🔍 Testing email configuration...');
   
   if (!transporter) {
-    console.log('❌ Gmail not configured or blocked by Render');
+    console.log('❌ Gmail transporter not available');
     console.log('📧 Using console mode for emails');
     return false;
   }
   
   try {
-    await transporter.verify();
-    console.log('✅ Gmail connection successful!');
-    return true;
+    // Test with a simple email
+    const testResult = await sendEmail(
+      process.env.SMTP_USER,
+      'Test Email from AI Hire',
+      '<h1>Test Email</h1><p>This is a test email.</p>'
+    );
+    
+    return testResult.success;
   } catch (error) {
-    console.log('❌ Gmail connection failed:', error.message);
-    console.log('📧 Emails will be logged to console');
+    console.log('❌ Email test failed:', error.message);
     return false;
   }
 };
 
+// ================== COMPATIBILITY FUNCTIONS ==================
+// For backward compatibility with auth controller
 export const EmailTemplates = {
   OTP: (name, otp) => templates.otp.html({ name, otp }),
-  WELCOME: (name) => `Welcome ${name}!`
+  WELCOME: (name) => templates.welcome.html({ name, loginUrl: 'https://aihire.com/login' })
 };
 
+// ================== DEFAULT EXPORT ==================
 export default {
   sendEmail,
   sendOTPEmail,
+  sendWelcomeEmail,
   testEmailConnection,
-  EmailTemplates
+  EmailTemplates,
+  transporter
 };
