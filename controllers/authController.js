@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-import { sendEmail, EmailTemplates, testEmailConnection } from '../utils/emailService.js';
+import { sendEmail, EmailTemplates, testEmailConnection } from '../services/emailService.js';
 // ================== EMAIL SERVICE ==================
 const createTransporter = () => {
   try {
