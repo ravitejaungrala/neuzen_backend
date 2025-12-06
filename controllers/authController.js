@@ -1,4 +1,4 @@
-// backend/controllers/authController.js - UPDATED VERSION
+// backend/controllers/authController.js
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.js';
@@ -18,7 +18,8 @@ const OTPService = {
       otp, 
       expiresAt,
       attempts: 0,
-      type: type
+      type: type,
+      verified: false
     });
     console.log(`✅ OTP stored for ${identifier}: ${otp} (Type: ${type})`);
   },
@@ -55,9 +56,63 @@ const OTPService = {
       return { valid: false, message: 'Invalid OTP' };
     }
     
+    // Mark as verified
+    stored.verified = true;
+    otpStore.set(identifier, stored);
+    
+    // For login OTPs, delete immediately. For reset OTPs, keep for final step
+    if (type === 'login') {
+      otpStore.delete(identifier);
+      console.log(`✅ Login OTP verified and deleted for ${identifier}`);
+    } else {
+      console.log(`✅ Reset OTP verified (kept for final step) for ${identifier}`);
+    }
+    
+    return { 
+      valid: true, 
+      message: 'OTP verified successfully', 
+      data: stored 
+    };
+  },
+  
+  // Special function for password reset final step
+  consumeResetOTP: (identifier, otp) => {
+    const stored = otpStore.get(identifier);
+    
+    if (!stored) {
+      console.log(`❌ Reset OTP not found for identifier: ${identifier}`);
+      return { valid: false, message: 'OTP not found or expired' };
+    }
+    
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(identifier);
+      console.log(`❌ Reset OTP expired for identifier: ${identifier}`);
+      return { valid: false, message: 'OTP has expired' };
+    }
+    
+    if (stored.type !== 'reset') {
+      console.log(`❌ Not a reset OTP for identifier: ${identifier}`);
+      return { valid: false, message: 'Invalid OTP type' };
+    }
+    
+    if (!stored.verified) {
+      console.log(`❌ Reset OTP not verified yet for ${identifier}`);
+      return { valid: false, message: 'OTP needs to be verified first' };
+    }
+    
+    if (stored.otp !== otp) {
+      console.log(`❌ Reset OTP mismatch for ${identifier}: ${otp} (Expected: ${stored.otp})`);
+      return { valid: false, message: 'Invalid OTP' };
+    }
+    
+    // Finally delete the OTP after successful password reset
     otpStore.delete(identifier);
-    console.log(`✅ OTP verified successfully for ${identifier}`);
-    return { valid: true, message: 'OTP verified successfully', data: stored };
+    console.log(`✅ Reset OTP consumed and deleted for ${identifier}`);
+    
+    return { 
+      valid: true, 
+      message: 'OTP validated successfully' 
+    };
   },
   
   debugOTPStore: () => {
@@ -68,6 +123,7 @@ const OTPService = {
       console.log(`Identifier: ${key}`);
       console.log(`  OTP: ${value.otp}`);
       console.log(`  Type: ${value.type}`);
+      console.log(`  Verified: ${value.verified}`);
       console.log(`  Expires in: ${remaining} seconds`);
       console.log(`  Attempts: ${value.attempts}`);
     });
@@ -360,7 +416,7 @@ export const verifyOTP = async (req, res) => {
     }
 
     const identifier = `login-email-${email}`;
-    console.log(`🔍 Verifying OTP for identifier: ${identifier}`);
+    console.log(`🔍 Verifying login OTP for identifier: ${identifier}`);
     
     const verification = OTPService.verifyOTP(identifier, otp, 'login');
     if (!verification.valid) {
@@ -473,7 +529,7 @@ export const verifyPhoneOTP = async (req, res) => {
     }
 
     const identifier = `login-phone-${mobile}`;
-    console.log(`🔍 Verifying OTP for identifier: ${identifier}`);
+    console.log(`🔍 Verifying login OTP for identifier: ${identifier}`);
     
     const verification = OTPService.verifyOTP(identifier, otp, 'login');
     if (!verification.valid) {
@@ -560,6 +616,7 @@ export const forgotPassword = async (req, res) => {
     console.log(`🔑 OTP: ${otp}`);
     console.log(`🔐 Identifier: ${identifier}`);
     console.log(`⏱️ Expires: 10 minutes`);
+    console.log(`💡 Note: This OTP will be kept for verification step`);
     console.log('🔐 =======================================\n');
 
     OTPService.debugOTPStore();
@@ -632,7 +689,7 @@ export const verifyPasswordResetOTP = async (req, res) => {
       });
     }
 
-    console.log(`✅ Reset OTP verified for ${email || mobile}`);
+    console.log(`✅ Reset OTP verified for ${email || mobile} (OTP kept for final step)`);
 
     res.json({
       status: 'success',
@@ -702,12 +759,12 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    console.log(`🔍 Final OTP verification for identifier: ${identifier}`);
+    console.log(`🔍 Final OTP consumption for identifier: ${identifier}`);
     
-    // Verify OTP one more time
-    const verification = OTPService.verifyOTP(identifier, otp, 'reset');
+    // Use the consumeResetOTP function for the final step
+    const verification = OTPService.consumeResetOTP(identifier, otp);
     if (!verification.valid) {
-      console.log(`❌ OTP verification failed: ${verification.message}`);
+      console.log(`❌ Reset OTP consumption failed: ${verification.message}`);
       return res.status(400).json({ 
         status: 'error',
         message: verification.message 
@@ -722,6 +779,8 @@ export const resetPassword = async (req, res) => {
     console.log(`👤 User: ${user.fullName}`);
     console.log(`📧 Email: ${user.email}`);
     console.log(`📞 Mobile: ${user.mobile}`);
+
+    OTPService.debugOTPStore();
 
     res.json({
       status: 'success',
@@ -935,12 +994,13 @@ export const checkMobile = async (req, res) => {
   }
 };
 
-// Debug endpoint
+// Debug OTP store
 export const debugOTPStore = (req, res) => {
   const otps = Array.from(otpStore.entries()).map(([key, value]) => ({
     identifier: key,
     otp: value.otp,
     type: value.type,
+    verified: value.verified,
     expiresAt: new Date(value.expiresAt).toISOString(),
     attempts: value.attempts,
     remainingTime: Math.max(0, Math.floor((value.expiresAt - Date.now()) / 1000))
@@ -950,7 +1010,7 @@ export const debugOTPStore = (req, res) => {
   console.log(`Total OTPs: ${otpStore.size}`);
   otpStore.forEach((value, key) => {
     const remaining = Math.max(0, Math.floor((value.expiresAt - Date.now()) / 1000));
-    console.log(`${key}: ${value.otp} (${value.type}, ${remaining}s left)`);
+    console.log(`${key}: ${value.otp} (${value.type}, verified: ${value.verified}, ${remaining}s left)`);
   });
   console.log('🔍 ====================================\n');
   
@@ -960,4 +1020,42 @@ export const debugOTPStore = (req, res) => {
     otps: otps,
     timestamp: new Date().toISOString()
   });
+};
+
+// Test email endpoint
+// export const testEmail = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+    
+//     if (!email) {
+//       return res.status(400).json({ 
+//         status: 'error',
+//         message: 'Email required' 
+//       });
+//     }
+    
+//     const otp = '123456';
+    
+//     console.log('\n🧪 ========== TEST EMAIL ==========');
+//     console.log(`📧 Email: ${email}`);
+//     console.log(`🔑 Test OTP: ${otp}`);
+//     console.log('🧪 ===============================\n');
+    
+//     res.json({
+//       status: 'success',
+//       message: 'Test OTP logged to console',
+//       data: {
+//         email: email,
+//         otp: otp,
+//         environment: process.env.NODE_ENV
+//       }
+//     });
+//   } catch (error) {
+//     console.error('Test email error:', error);
+//     res.status(500).json({
+//       status: 'error',
+//       message: 'Test failed',
+//       error: error.message
+//     });
+//   }
 };
