@@ -1,169 +1,8 @@
-// backend/controllers/authController.js
+// backend/controllers/authController.js - UPDATED VERSION
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-
-// ================== EMAIL SERVICE ==================
-const createTransporter = () => {
-  try {
-    // Development mode: Always use console logging
-    if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
-      console.log('📧 Using console-only email service');
-      return {
-        sendMail: async (mailOptions) => {
-          console.log('📧 [CONSOLE EMAIL LOG]:');
-          console.log('To:', mailOptions.to);
-          console.log('Subject:', mailOptions.subject);
-          
-          // Extract OTP from email content for logging
-          if (mailOptions.html && mailOptions.html.includes('OTP')) {
-            const otpMatch = mailOptions.html.match(/\b\d{6}\b/);
-            if (otpMatch) {
-              console.log(`🔑 [OTP FOR ${mailOptions.to}]: ${otpMatch[0]}`);
-            }
-          }
-          
-          return { messageId: 'console-log-' + Date.now() };
-        }
-      };
-    }
-
-    // Production: Try to use real SMTP if configured
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error creating email transporter:', error);
-    return null;
-  }
-};
-
-const sendEmail = async (to, subject, html) => {
-  try {
-    const transporter = createTransporter();
-    
-    if (!transporter) {
-      console.log(`📧 [NO SMTP]: Email would be sent to: ${to}`);
-      console.log(`📧 Subject: ${subject}`);
-      return { success: true, message: 'Console logged' };
-    }
-
-    const mailOptions = {
-      from: process.env.SMTP_FROM || 'noreply@hiregen.ai',
-      to,
-      subject,
-      html
-    };
-
-    const result = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent to ${to}: ${subject}`);
-    return { success: true, result };
-  } catch (error) {
-    console.error(`❌ Email error to ${to}:`, error.message);
-    console.log(`📧 [FALLBACK LOG FOR ${to}]: ${subject}`);
-    return { success: false, error: error.message };
-  }
-};
-
-const EmailService = {
-  sendWelcomeEmail: async (email, name) => {
-    try {
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Welcome to HireGen AI!</h2>
-          <p>Hello ${name},</p>
-          <p>Your account has been created successfully.</p>
-          <p>Thank you for joining our platform!</p>
-        </div>
-      `;
-      const result = await sendEmail(email, 'Welcome to HireGen AI!', html);
-      
-      if (result.success) {
-        console.log(`✅ Welcome email logged for ${email}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Welcome email error:', error);
-      return false;
-    }
-  },
-
-  sendOTP: async (email, name, otp) => {
-    try {
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Your Login OTP</h2>
-          <p>Hello ${name},</p>
-          <p>Your OTP for login is:</p>
-          <div style="background: #f0f0f0; padding: 20px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This OTP expires in 10 minutes.</p>
-        </div>
-      `;
-      
-      const result = await sendEmail(email, `Your OTP: ${otp}`, html);
-      
-      // Always log OTP to console
-      console.log('\n📧 ========== EMAIL OTP ==========');
-      console.log(`📧 Email: ${email}`);
-      console.log(`👤 User: ${name}`);
-      console.log(`🔑 OTP: ${otp}`);
-      console.log(`⏱️ Expires: 10 minutes`);
-      console.log('📧 ===============================\n');
-      
-      return true;
-    } catch (error) {
-      console.error('OTP email error:', error);
-      console.log(`📧 [ERROR OTP FOR ${email}]: ${otp}`);
-      return false;
-    }
-  },
-
-  sendPasswordResetOTP: async (email, name, otp) => {
-    try {
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Password Reset OTP</h2>
-          <p>Hello ${name},</p>
-          <p>Your password reset OTP is:</p>
-          <div style="background: #f0f0f0; padding: 20px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-            ${otp}
-          </div>
-          <p>This OTP expires in 10 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        </div>
-      `;
-      
-      const result = await sendEmail(email, 'Password Reset OTP', html);
-      
-      console.log('\n🔐 ========== PASSWORD RESET OTP ==========');
-      console.log(`📧 Email: ${email}`);
-      console.log(`👤 User: ${name}`);
-      console.log(`🔑 OTP: ${otp}`);
-      console.log(`⏱️ Expires: 10 minutes`);
-      console.log('🔐 =======================================\n');
-      
-      return true;
-    } catch (error) {
-      console.error('Password reset OTP error:', error);
-      console.log(`🔐 [PASSWORD RESET OTP FOR ${email}]: ${otp}`);
-      return false;
-    }
-  }
-};
 
 // ================== OTP SERVICE ==================
 const otpStore = new Map();
@@ -173,47 +12,66 @@ const OTPService = {
     return Math.floor(100000 + Math.random() * 900000).toString();
   },
   
-  storeOTP: (identifier, otp) => {
+  storeOTP: (identifier, otp, type = 'general') => {
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     otpStore.set(identifier, { 
       otp, 
       expiresAt,
-      attempts: 0
+      attempts: 0,
+      type: type
     });
-    console.log(`✅ OTP stored for ${identifier}: ${otp}`);
+    console.log(`✅ OTP stored for ${identifier}: ${otp} (Type: ${type})`);
   },
   
-  verifyOTP: (identifier, otp) => {
+  verifyOTP: (identifier, otp, type = null) => {
     const stored = otpStore.get(identifier);
     
     if (!stored) {
+      console.log(`❌ OTP not found for identifier: ${identifier}`);
       return { valid: false, message: 'OTP not found or expired' };
     }
     
     if (Date.now() > stored.expiresAt) {
       otpStore.delete(identifier);
+      console.log(`❌ OTP expired for identifier: ${identifier}`);
       return { valid: false, message: 'OTP has expired' };
     }
     
     if (stored.attempts >= 3) {
       otpStore.delete(identifier);
+      console.log(`❌ Too many attempts for identifier: ${identifier}`);
       return { valid: false, message: 'Too many attempts' };
+    }
+    
+    if (type && stored.type !== type) {
+      console.log(`❌ OTP type mismatch: Expected ${type}, got ${stored.type}`);
+      return { valid: false, message: 'Invalid OTP type' };
     }
     
     if (stored.otp !== otp) {
       stored.attempts += 1;
       otpStore.set(identifier, stored);
+      console.log(`❌ Invalid OTP attempt for ${identifier}: ${otp} (Expected: ${stored.otp})`);
       return { valid: false, message: 'Invalid OTP' };
     }
     
     otpStore.delete(identifier);
-    return { valid: true, message: 'OTP verified successfully' };
+    console.log(`✅ OTP verified successfully for ${identifier}`);
+    return { valid: true, message: 'OTP verified successfully', data: stored };
   },
   
-  getRemainingTime: (identifier) => {
-    const stored = otpStore.get(identifier);
-    if (!stored) return 0;
-    return Math.max(0, Math.floor((stored.expiresAt - Date.now()) / 1000));
+  debugOTPStore: () => {
+    console.log('\n🔍 ========== OTP STORE DEBUG ==========');
+    console.log(`Total OTPs in store: ${otpStore.size}`);
+    otpStore.forEach((value, key) => {
+      const remaining = Math.max(0, Math.floor((value.expiresAt - Date.now()) / 1000));
+      console.log(`Identifier: ${key}`);
+      console.log(`  OTP: ${value.otp}`);
+      console.log(`  Type: ${value.type}`);
+      console.log(`  Expires in: ${remaining} seconds`);
+      console.log(`  Attempts: ${value.attempts}`);
+    });
+    console.log('🔍 ====================================\n');
   }
 };
 
@@ -304,8 +162,12 @@ export const register = async (req, res) => {
       }
     }
 
-    // Send welcome email async
-    EmailService.sendWelcomeEmail(email, fullName).catch(console.error);
+    console.log('\n🎉 ========== NEW REGISTRATION ==========');
+    console.log(`👤 User: ${fullName}`);
+    console.log(`📧 Email: ${email}`);
+    console.log(`📞 Mobile: ${mobile}`);
+    console.log(`🎯 Role: ${role}`);
+    console.log('🎉 =====================================\n');
 
     createSendToken(user, 201, res);
   } catch (error) {
@@ -356,6 +218,8 @@ export const login = async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
+    console.log(`✅ Login successful for ${email}`);
+
     createSendToken(user, 200, res);
   } catch (error) {
     console.error('Login error:', error);
@@ -397,6 +261,8 @@ export const loginWithPhone = async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
+    console.log(`✅ Mobile login successful for ${mobile}`);
+
     createSendToken(user, 200, res);
   } catch (error) {
     console.error('Mobile login error:', error);
@@ -407,7 +273,7 @@ export const loginWithPhone = async (req, res) => {
   }
 };
 
-// Request OTP for email
+// Request OTP for email (LOGIN)
 export const requestOTP = async (req, res) => {
   try {
     const { email } = req.body;
@@ -435,10 +301,18 @@ export const requestOTP = async (req, res) => {
     }
 
     const otp = OTPService.generateOTP();
-    OTPService.storeOTP(email, otp);
+    const identifier = `login-email-${email}`;
+    OTPService.storeOTP(identifier, otp, 'login');
 
-    // Send OTP email (logs to console in development)
-    await EmailService.sendOTP(email, user.fullName, otp);
+    console.log('\n📧 ========== EMAIL LOGIN OTP ==========');
+    console.log(`📧 Email: ${email}`);
+    console.log(`👤 User: ${user.fullName}`);
+    console.log(`🔑 OTP: ${otp}`);
+    console.log(`🔐 Identifier: ${identifier}`);
+    console.log(`⏱️ Expires: 10 minutes`);
+    console.log('📧 =====================================\n');
+
+    OTPService.debugOTPStore();
 
     res.json({
       status: 'success',
@@ -446,7 +320,7 @@ export const requestOTP = async (req, res) => {
       data: {
         email: email,
         otp: otp,
-        note: 'Check browser console (F12) for OTP details'
+        note: 'Check server console for OTP'
       }
     });
   } catch (error) {
@@ -485,7 +359,10 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    const verification = OTPService.verifyOTP(email, otp);
+    const identifier = `login-email-${email}`;
+    console.log(`🔍 Verifying OTP for identifier: ${identifier}`);
+    
+    const verification = OTPService.verifyOTP(identifier, otp, 'login');
     if (!verification.valid) {
       return res.status(400).json({ 
         status: 'error',
@@ -495,6 +372,8 @@ export const verifyOTP = async (req, res) => {
 
     user.lastLogin = new Date();
     await user.save();
+
+    console.log(`✅ Email OTP login successful for ${email}`);
 
     createSendToken(user, 200, res);
   } catch (error) {
@@ -506,7 +385,7 @@ export const verifyOTP = async (req, res) => {
   }
 };
 
-// Request OTP for phone
+// Request OTP for phone (LOGIN)
 export const requestPhoneOTP = async (req, res) => {
   try {
     const { mobile, countryCode } = req.body;
@@ -534,16 +413,18 @@ export const requestPhoneOTP = async (req, res) => {
     }
 
     const otp = OTPService.generateOTP();
-    const identifier = `phone-${mobile}`;
-    OTPService.storeOTP(identifier, otp);
+    const identifier = `login-phone-${mobile}`;
+    OTPService.storeOTP(identifier, otp, 'login');
 
-    // Log OTP to console
-    console.log('\n📱 ========== MOBILE OTP ==========');
+    console.log('\n📱 ========== MOBILE LOGIN OTP ==========');
     console.log(`📞 Phone: ${countryCode || '+91'} ${mobile}`);
     console.log(`👤 User: ${user.fullName}`);
     console.log(`🔑 OTP: ${otp}`);
+    console.log(`🔐 Identifier: ${identifier}`);
     console.log(`⏱️ Expires: 10 minutes`);
-    console.log('📱 ================================\n');
+    console.log('📱 =====================================\n');
+
+    OTPService.debugOTPStore();
 
     res.json({
       status: 'success',
@@ -552,7 +433,7 @@ export const requestPhoneOTP = async (req, res) => {
         mobile: mobile,
         countryCode: countryCode || '+91',
         otp: otp,
-        note: 'Check browser console (F12) for OTP details'
+        note: 'Check server console for OTP'
       }
     });
   } catch (error) {
@@ -591,8 +472,10 @@ export const verifyPhoneOTP = async (req, res) => {
       });
     }
 
-    const identifier = `phone-${mobile}`;
-    const verification = OTPService.verifyOTP(identifier, otp);
+    const identifier = `login-phone-${mobile}`;
+    console.log(`🔍 Verifying OTP for identifier: ${identifier}`);
+    
+    const verification = OTPService.verifyOTP(identifier, otp, 'login');
     if (!verification.valid) {
       return res.status(400).json({ 
         status: 'error',
@@ -602,6 +485,8 @@ export const verifyPhoneOTP = async (req, res) => {
 
     user.lastLogin = new Date();
     await user.save();
+
+    console.log(`✅ Mobile OTP login successful for ${mobile}`);
 
     createSendToken(user, 200, res);
   } catch (error) {
@@ -613,37 +498,48 @@ export const verifyPhoneOTP = async (req, res) => {
   }
 };
 
-// Request password reset OTP
-export const requestPasswordResetOTP = async (req, res) => {
+// Password Reset - Request OTP
+export const forgotPassword = async (req, res) => {
   try {
-    const { email, mobile, countryCode = '+91', method = 'email' } = req.body;
+    console.log('🔍 Forgot password request:', req.body);
+    
+    const { email, mobile, countryCode = '+91' } = req.body;
 
+    // Check if at least one identifier is provided
     if (!email && !mobile) {
       return res.status(400).json({ 
         status: 'error',
-        message: 'Email or mobile required' 
+        message: 'Please provide either email or mobile number' 
       });
     }
 
     let user;
     let identifier;
     let contactInfo;
+    let method;
     
-    if (method === 'email') {
+    if (email) {
       user = await User.findOne({ email });
+      if (!user) {
+        return res.status(404).json({ 
+          status: 'error',
+          message: 'User with this email not found' 
+        });
+      }
       identifier = `reset-email-${email}`;
       contactInfo = email;
+      method = 'email';
     } else {
       user = await User.findOne({ mobile });
+      if (!user) {
+        return res.status(404).json({ 
+          status: 'error',
+          message: 'User with this mobile number not found' 
+        });
+      }
       identifier = `reset-phone-${mobile}`;
       contactInfo = `${countryCode} ${mobile}`;
-    }
-
-    if (!user) {
-      return res.status(404).json({ 
-        status: 'error',
-        message: 'User not found' 
-      });
+      method = 'mobile';
     }
 
     if (!user.isActive) {
@@ -654,7 +550,7 @@ export const requestPasswordResetOTP = async (req, res) => {
     }
 
     const otp = OTPService.generateOTP();
-    OTPService.storeOTP(identifier, otp);
+    OTPService.storeOTP(identifier, otp, 'reset');
 
     // Log OTP to console
     console.log('\n🔐 ========== PASSWORD RESET OTP ==========');
@@ -662,22 +558,22 @@ export const requestPasswordResetOTP = async (req, res) => {
     console.log(`📧 Contact: ${contactInfo}`);
     console.log(`👤 User: ${user.fullName}`);
     console.log(`🔑 OTP: ${otp}`);
+    console.log(`🔐 Identifier: ${identifier}`);
     console.log(`⏱️ Expires: 10 minutes`);
     console.log('🔐 =======================================\n');
 
-    // Try to send email if method is email
-    if (method === 'email') {
-      await EmailService.sendPasswordResetOTP(email, user.fullName, otp);
-    }
+    OTPService.debugOTPStore();
 
     res.json({
       status: 'success',
       message: 'OTP generated successfully',
       data: {
-        [method === 'email' ? 'email' : 'mobile']: method === 'email' ? email : mobile,
+        method: method,
+        contact: method === 'email' ? email : mobile,
         countryCode: method === 'mobile' ? countryCode : undefined,
         otp: otp,
-        note: 'Check browser console (F12) for OTP details'
+        identifier: identifier,
+        note: 'OTP available in server console only'
       }
     });
   } catch (error) {
@@ -692,7 +588,9 @@ export const requestPasswordResetOTP = async (req, res) => {
 // Verify password reset OTP
 export const verifyPasswordResetOTP = async (req, res) => {
   try {
-    const { email, mobile, countryCode = '+91', otp } = req.body;
+    console.log('🔍 Verify reset OTP request:', req.body);
+    
+    const { email, mobile, otp } = req.body;
 
     if (!otp) {
       return res.status(400).json({ 
@@ -724,7 +622,9 @@ export const verifyPasswordResetOTP = async (req, res) => {
       });
     }
 
-    const verification = OTPService.verifyOTP(identifier, otp);
+    console.log(`🔍 Verifying reset OTP for identifier: ${identifier}`);
+    
+    const verification = OTPService.verifyOTP(identifier, otp, 'reset');
     if (!verification.valid) {
       return res.status(400).json({ 
         status: 'error',
@@ -732,11 +632,14 @@ export const verifyPasswordResetOTP = async (req, res) => {
       });
     }
 
+    console.log(`✅ Reset OTP verified for ${email || mobile}`);
+
     res.json({
       status: 'success',
       message: 'OTP verified successfully',
       data: {
         verified: true,
+        identifier: identifier,
         user: {
           id: user._id,
           email: user.email,
@@ -755,9 +658,11 @@ export const verifyPasswordResetOTP = async (req, res) => {
 };
 
 // Reset password with OTP
-export const resetPasswordWithOTP = async (req, res) => {
+export const resetPassword = async (req, res) => {
   try {
-    const { email, mobile, countryCode = '+91', otp, password } = req.body;
+    console.log('🔍 Reset password request:', req.body);
+    
+    const { email, mobile, otp, password } = req.body;
 
     if (!otp || !password) {
       return res.status(400).json({ 
@@ -790,15 +695,19 @@ export const resetPasswordWithOTP = async (req, res) => {
     }
 
     if (!user) {
+      console.log(`❌ User not found for ${email || mobile}`);
       return res.status(404).json({ 
         status: 'error',
         message: 'User not found' 
       });
     }
 
+    console.log(`🔍 Final OTP verification for identifier: ${identifier}`);
+    
     // Verify OTP one more time
-    const verification = OTPService.verifyOTP(identifier, otp);
+    const verification = OTPService.verifyOTP(identifier, otp, 'reset');
     if (!verification.valid) {
+      console.log(`❌ OTP verification failed: ${verification.message}`);
       return res.status(400).json({ 
         status: 'error',
         message: verification.message 
@@ -810,6 +719,9 @@ export const resetPasswordWithOTP = async (req, res) => {
     await user.save();
 
     console.log(`✅ Password reset successful for ${email || mobile}`);
+    console.log(`👤 User: ${user.fullName}`);
+    console.log(`📧 Email: ${user.email}`);
+    console.log(`📞 Mobile: ${user.mobile}`);
 
     res.json({
       status: 'success',
@@ -923,78 +835,6 @@ export const changePassword = async (req, res) => {
   }
 };
 
-// Old forgot password (token-based - kept for compatibility)
-export const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ 
-        status: 'error',
-        message: 'User not found' 
-      });
-    }
-
-    // For compatibility, use OTP method
-    const otp = OTPService.generateOTP();
-    const identifier = `reset-email-${email}`;
-    OTPService.storeOTP(identifier, otp);
-
-    console.log('\n🔐 ========== PASSWORD RESET OTP ==========');
-    console.log(`📧 Email: ${email}`);
-    console.log(`👤 User: ${user.fullName}`);
-    console.log(`🔑 OTP: ${otp}`);
-    console.log(`⏱️ Expires: 10 minutes`);
-    console.log('🔐 =======================================\n');
-
-    await EmailService.sendPasswordResetOTP(email, user.fullName, otp);
-
-    res.json({
-      status: 'success',
-      message: 'OTP generated successfully',
-      data: {
-        email: email,
-        otp: otp,
-        note: 'Check browser console (F12) for OTP details'
-      }
-    });
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({ 
-      status: 'error',
-      message: 'Failed to process request'
-    });
-  }
-};
-
-// Old reset password (token-based - kept for compatibility)
-export const resetPassword = async (req, res) => {
-  try {
-    const { token, password } = req.body;
-
-    // For compatibility with old links
-    if (token && password) {
-      // This is a simplified version - in production, you'd verify the token
-      return res.json({
-        status: 'success',
-        message: 'Use OTP reset method for better security'
-      });
-    }
-
-    return res.status(400).json({ 
-      status: 'error',
-      message: 'Use OTP reset method' 
-    });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ 
-      status: 'error',
-      message: 'Failed to reset password'
-    });
-  }
-};
-
 // Refresh token
 export const refreshToken = async (req, res) => {
   try {
@@ -1095,40 +935,29 @@ export const checkMobile = async (req, res) => {
   }
 };
 
-// Test email endpoint
-export const testEmail = async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ 
-        status: 'error',
-        message: 'Email required' 
-      });
-    }
-    
-    const otp = '123456';
-    
-    console.log('\n🧪 ========== TEST EMAIL ==========');
-    console.log(`📧 Email: ${email}`);
-    console.log(`🔑 Test OTP: ${otp}`);
-    console.log('🧪 ===============================\n');
-    
-    res.json({
-      status: 'success',
-      message: 'Test OTP logged to console',
-      data: {
-        email: email,
-        otp: otp,
-        environment: process.env.NODE_ENV
-      }
-    });
-  } catch (error) {
-    console.error('Test email error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Test failed',
-      error: error.message
-    });
-  }
+// Debug endpoint
+export const debugOTPStore = (req, res) => {
+  const otps = Array.from(otpStore.entries()).map(([key, value]) => ({
+    identifier: key,
+    otp: value.otp,
+    type: value.type,
+    expiresAt: new Date(value.expiresAt).toISOString(),
+    attempts: value.attempts,
+    remainingTime: Math.max(0, Math.floor((value.expiresAt - Date.now()) / 1000))
+  }));
+  
+  console.log('\n🔍 ========== OTP STORE DEBUG ==========');
+  console.log(`Total OTPs: ${otpStore.size}`);
+  otpStore.forEach((value, key) => {
+    const remaining = Math.max(0, Math.floor((value.expiresAt - Date.now()) / 1000));
+    console.log(`${key}: ${value.otp} (${value.type}, ${remaining}s left)`);
+  });
+  console.log('🔍 ====================================\n');
+  
+  res.json({
+    status: 'success',
+    count: otpStore.size,
+    otps: otps,
+    timestamp: new Date().toISOString()
+  });
 };
