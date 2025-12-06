@@ -30,8 +30,7 @@ import {
   checkEmail,
   checkMobile,
   
-  // Testing
-  testEmail
+ 
 } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -72,8 +71,7 @@ router.post('/logout', logout);
 router.get('/check-email', checkEmail);
 router.get('/check-mobile', checkMobile);
 
-// Testing
-router.post('/test-email', testEmail);
+
 
 // ================== PROTECTED ROUTES ==================
 // All routes below require authentication
