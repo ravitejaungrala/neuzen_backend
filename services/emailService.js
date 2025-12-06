@@ -321,6 +321,43 @@ const templates = {
       </body>
       </html>
     `
+  },
+
+  // OTP template added to main templates object
+  otp: {
+    subject: 'Login OTP - AI Hire Platform',
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+          .header { background: #667eea; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background: #f9f9f9; }
+          .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>AI Hire Platform</h1>
+          <h2>Login Verification</h2>
+        </div>
+        <div class="content">
+          <p>Hello <strong>${data.name}</strong>,</p>
+          <p>Your OTP for login is:</p>
+          <div class="otp">${data.otp}</div>
+          <p>This OTP is valid for 10 minutes.</p>
+          <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
+          <p>If you didn't request this OTP, please ignore this email.</p>
+        </div>
+        <div class="footer">
+          <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `
   }
 };
 
@@ -333,9 +370,9 @@ const additionalTemplates = {
       <meta charset="UTF-8">
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #f97316; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9fafb; }
-        .otp { font-size: 32px; font-weight: bold; color: #f97316; text-align: center; margin: 20px 0; letter-spacing: 5px; }
+        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
         .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
       </style>
     </head>
@@ -367,8 +404,8 @@ const additionalTemplates = {
       <meta charset="UTF-8">
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #f97316; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9fafb; }
+        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
         .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
       </style>
     </head>
@@ -395,6 +432,21 @@ const additionalTemplates = {
   `
 };
 
+// Special function for sending OTP emails (used by authController)
+export const sendOTPEmail = async (to, name, otp) => {
+  try {
+    const result = await sendEmail({
+      to,
+      template: 'otp',
+      data: { name, otp }
+    });
+    return result;
+  } catch (error) {
+    console.error('❌ OTP email sending failed:', error);
+    throw error;
+  }
+};
+
 // Original sendEmail function from old service (with enhanced error handling from new service)
 export const sendEmail = async (options) => {
   try {
@@ -418,7 +470,15 @@ export const sendEmail = async (options) => {
       htmlContent = options.html;
       emailSubject = subject || 'Notification from AI Hire Platform';
     } else {
-      throw new Error(`Template ${template} not found and no HTML provided`);
+      // For backward compatibility, allow sending without template for OTP
+      if (data && data.otp && data.name) {
+        // Auto-generate OTP email
+        console.log('⚠️  Using auto-generated OTP email (template not specified)');
+        htmlContent = additionalTemplates.OTP(data.name, data.otp);
+        emailSubject = 'Login OTP - AI Hire Platform';
+      } else {
+        throw new Error(`Template ${template} not found and no HTML provided`);
+      }
     }
     
     if (!transporter) {
@@ -443,13 +503,12 @@ export const sendEmail = async (options) => {
     
     console.log(`📧 Attempting to send email to: ${to}`);
     console.log(`📧 Subject: ${emailSubject}`);
-    console.log(`📧 Template: ${template}`);
+    console.log(`📧 Template: ${template || 'auto-generated'}`);
     
     const info = await transporter.sendMail(mailOptions);
     
     console.log(`✅ Email sent successfully to ${to}`);
     console.log(`✅ Message ID: ${info.messageId}`);
-    console.log(`✅ Response: ${info.response}`);
     
     return { 
       success: true, 
@@ -589,5 +648,6 @@ export default {
   sendBulkEmail,      // Bulk email function
   testEmailConnection, // Test function
   EmailTemplates,     // All templates
-  transporter         // Transporter instance
+  transporter,        // Transporter instance
+  sendOTPEmail        // Special OTP email function
 };
