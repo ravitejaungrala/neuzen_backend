@@ -1,6 +1,8 @@
+// backend/controllers/authController.js
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.js';
+import Company from '../models/Company.js';
 
 // Mock email service
 const EmailService = {
@@ -58,15 +60,18 @@ const createSendToken = (user, statusCode, res) => {
       id: user._id,
       fullName: user.fullName,
       email: user.email,
+      mobile: user.mobile,
       role: user.role,
       companyName: user.companyName,
       avatar: user.avatar,
-      isVerified: user.isVerified
+      isVerified: user.isVerified,
+      profile: user.profile,
+      preferences: user.preferences
     }
   });
 };
 
-// backend/controllers/authController.js - UPDATED registration function
+// Register user
 export const register = async (req, res) => {
   try {
     console.log('Registration request received:', req.body);
@@ -179,7 +184,8 @@ export const register = async (req, res) => {
     });
   }
 };
-// Login user
+
+// Login user with email/password
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -215,7 +221,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // Update last login - use findByIdAndUpdate to avoid triggering save middleware
+    // Update last login
     await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
     createSendToken(user, 200, res);
@@ -228,7 +234,50 @@ export const login = async (req, res) => {
   }
 };
 
-// Request OTP
+// NEW: Login with mobile number (for OTP)
+export const loginWithPhone = async (req, res) => {
+  try {
+    const { mobile } = req.body;
+
+    if (!mobile) {
+      return res.status(400).json({ 
+        message: 'Mobile number is required' 
+      });
+    }
+
+    // Find user by mobile number
+    const user = await User.findOne({ mobile });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        status: 'error',
+        message: 'No account found with this mobile number. Please sign up first.' 
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        status: 'error',
+        message: 'Account has been deactivated' 
+      });
+    }
+
+    // Update last login
+    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
+
+    createSendToken(user, 200, res);
+  } catch (error) {
+    console.error('Mobile login error:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error logging in with mobile',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
+    });
+  }
+};
+
+// Request OTP for email
 export const requestOTP = async (req, res) => {
   try {
     const { email } = req.body;
@@ -266,7 +315,7 @@ export const requestOTP = async (req, res) => {
   }
 };
 
-// Verify OTP
+// Verify OTP for email
 export const verifyOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -292,7 +341,7 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
-    // Update last login - use findByIdAndUpdate to avoid triggering save middleware
+    // Update last login
     await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
     createSendToken(user, 200, res);
@@ -312,37 +361,41 @@ export const getProfile = async (req, res) => {
     
     if (!user) {
       return res.status(404).json({ 
+        status: 'error',
         message: 'User not found' 
       });
     }
 
     res.json({
       status: 'success',
-      user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        mobile: user.mobile,
-        role: user.role,
-        companyName: user.companyName,
-        avatar: user.avatar,
-        isVerified: user.isVerified,
-        profile: user.profile,
-        preferences: user.preferences,
-        applications: user.applications,
-        lastLogin: user.lastLogin
+      data: {
+        user: {
+          id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          mobile: user.mobile,
+          role: user.role,
+          companyName: user.companyName,
+          avatar: user.avatar,
+          isVerified: user.isVerified,
+          profile: user.profile,
+          preferences: user.preferences,
+          applications: user.applications,
+          lastLogin: user.lastLogin
+        }
       }
     });
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ 
+      status: 'error',
       message: 'Error fetching profile',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
   }
 };
 
-// Update profile - FIXED to avoid triggering password middleware
+// Update profile
 export const updateProfile = async (req, res) => {
   try {
     const { fullName, mobile, companyName, avatar, preferences, profile } = req.body;
@@ -370,6 +423,7 @@ export const updateProfile = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ 
+        status: 'error',
         message: 'User not found' 
       });
     }
@@ -392,19 +446,21 @@ export const updateProfile = async (req, res) => {
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({ 
+      status: 'error',
       message: 'Error updating profile',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
   }
 };
 
-// Change password - FIXED to use direct update
+// Change password
 export const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ 
+        status: 'error',
         message: 'Current password and new password are required' 
       });
     }
@@ -414,6 +470,7 @@ export const changePassword = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ 
+        status: 'error',
         message: 'User not found' 
       });
     }
@@ -421,11 +478,12 @@ export const changePassword = async (req, res) => {
     // Check current password
     if (!(await user.comparePassword(currentPassword))) {
       return res.status(401).json({ 
+        status: 'error',
         message: 'Current password is incorrect' 
       });
     }
 
-    // Update password directly - this will trigger the password hashing middleware
+    // Update password
     user.password = newPassword;
     await user.save();
 
@@ -436,6 +494,7 @@ export const changePassword = async (req, res) => {
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ 
+      status: 'error',
       message: 'Error changing password',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
@@ -450,6 +509,7 @@ export const forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ 
+        status: 'error',
         message: 'User not found with this email' 
       });
     }
@@ -461,7 +521,7 @@ export const forgotPassword = async (req, res) => {
       .update(resetToken)
       .digest('hex');
 
-    // Save reset token to user - use updateOne to avoid triggering save middleware
+    // Save reset token to user
     await User.updateOne(
       { _id: user._id },
       {
@@ -482,6 +542,7 @@ export const forgotPassword = async (req, res) => {
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ 
+      status: 'error',
       message: 'Error sending password reset email',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
@@ -495,6 +556,7 @@ export const resetPassword = async (req, res) => {
 
     if (!token || !password) {
       return res.status(400).json({ 
+        status: 'error',
         message: 'Token and password are required' 
       });
     }
@@ -511,11 +573,12 @@ export const resetPassword = async (req, res) => {
 
     if (!user) {
       return res.status(400).json({ 
+        status: 'error',
         message: 'Token is invalid or has expired' 
       });
     }
 
-    // Update password - this will trigger the password hashing middleware
+    // Update password
     user.password = password;
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
@@ -525,6 +588,7 @@ export const resetPassword = async (req, res) => {
   } catch (error) {
     console.error('Reset password error:', error);
     res.status(500).json({ 
+      status: 'error',
       message: 'Error resetting password',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
@@ -538,6 +602,7 @@ export const refreshToken = async (req, res) => {
 
     if (!refreshToken) {
       return res.status(401).json({ 
+        status: 'error',
         message: 'Refresh token is required' 
       });
     }
@@ -547,6 +612,7 @@ export const refreshToken = async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ 
+        status: 'error',
         message: 'User belonging to this token no longer exists' 
       });
     }
@@ -555,6 +621,7 @@ export const refreshToken = async (req, res) => {
   } catch (error) {
     console.error('Refresh token error:', error);
     res.status(401).json({ 
+      status: 'error',
       message: 'Invalid refresh token',
       error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
     });
