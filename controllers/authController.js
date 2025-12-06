@@ -1,139 +1,9 @@
-// backend/controllers/authController.js
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-import { sendEmail, EmailTemplates, testEmailConnection } from '../services/emailService.js';
-// ================== EMAIL SERVICE ==================
-const createTransporter = () => {
-  try {
-    // Development mode: Use mock emails if configured
-    if (process.env.ENABLE_MOCK_EMAILS === 'true') {
-      console.log('📧 Using mock email service (development mode)');
-      return {
-        sendMail: async (mailOptions) => {
-          console.log('📧 [MOCK EMAIL]:', {
-            to: mailOptions.to,
-            subject: mailOptions.subject,
-            html: mailOptions.html ? 'HTML email content' : mailOptions.text
-          });
-          
-          // Store OTP in console for development
-          if (mailOptions.subject?.includes('OTP')) {
-            const otpMatch = mailOptions.html?.match(/\d{6}/);
-            if (otpMatch) {
-              console.log(`🔑 [DEV OTP]: ${otpMatch[0]} sent to ${mailOptions.to}`);
-            }
-          }
-          
-          return { messageId: 'mock-message-id-' + Date.now() };
-        }
-      };
-    }
+import { sendOTPEmail, sendWelcomeEmail, testEmailConnection, EmailTemplates } from '../services/emailService.js';
 
-    // Production: Use real SMTP
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      console.warn('⚠️ SMTP credentials not configured. Using mock emails.');
-      return {
-        sendMail: async (mailOptions) => {
-          console.log('📧 [NO SMTP CONFIG]: Email would be sent to:', mailOptions.to);
-          console.log('📧 Subject:', mailOptions.subject);
-          return { messageId: 'no-smtp-config-' + Date.now() };
-        }
-      };
-    }
-
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error creating email transporter:', error);
-    return null;
-  }
-};
-
-const EmailService = {
-  sendWelcomeEmail: async (email, name) => {
-    try {
-      const html = EmailTemplates.WELCOME(name);
-      const result = await sendEmail(email, 'Welcome to HireGen AI!', html);
-      
-      if (result.success) {
-        console.log(`✅ Welcome email sent to ${email}`);
-        return true;
-      } else {
-        console.error(`❌ Failed to send welcome email to ${email}:`, result.error);
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Welcome email error:', error);
-      return false;
-    }
-  },
-
-  sendOTP: async (email, name, otp) => {
-    try {
-      const html = EmailTemplates.OTP(name, otp);
-      const result = await sendEmail(email, `Your OTP: ${otp}`, html);
-      
-      if (result.success) {
-        console.log(`✅ OTP email sent to ${email}: ${otp}`);
-        console.log(`📱 [OTP FOR ${email}]: ${otp}`);
-        return true;
-      } else {
-        console.error(`❌ Failed to send OTP email to ${email}:`, result.error);
-        console.log(`📱 [FALLBACK OTP FOR ${email}]: ${otp}`);
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ OTP email error:', error);
-      console.log(`📱 [ERROR OTP FOR ${email}]: ${otp}`);
-      return false;
-    }
-  },
-
-  sendPasswordReset: async (email, name, resetURL) => {
-    try {
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Password Reset Request</h2>
-          <p>Hello ${name},</p>
-          <p>Click the link below to reset your password:</p>
-          <a href="${resetURL}" style="background: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
-          <p>This link expires in 10 minutes.</p>
-        </div>
-      `;
-      
-      const result = await sendEmail(email, 'Reset Your Password', html);
-      
-      if (result.success) {
-        console.log(`✅ Password reset email sent to ${email}`);
-        return true;
-      } else {
-        console.error(`❌ Failed to send password reset email to ${email}:`, result.error);
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Password reset email error:', error);
-      return false;
-    }
-  },
-
-  // Test function
-  testConnection: async () => {
-    return await testEmailConnection();
-  }
-};
 // ================== OTP SERVICE ==================
 const otpStore = new Map();
 
@@ -273,8 +143,8 @@ export const register = async (req, res) => {
       }
     }
 
-    // Send welcome email async
-    EmailService.sendWelcomeEmail(email, fullName).catch(console.error);
+    // Send welcome email async (using centralized email service)
+    sendWelcomeEmail(email, fullName).catch(console.error);
 
     createSendToken(user, 201, res);
   } catch (error) {
@@ -406,12 +276,11 @@ export const requestOTP = async (req, res) => {
     const otp = OTPService.generateOTP();
     OTPService.storeOTP(email, otp);
 
-    // Send OTP email
-    const emailSent = await EmailService.sendOTP(email, user.fullName, otp);
+    // Send OTP email using centralized email service
+    const emailResult = await sendOTPEmail(email, user.fullName, otp);
     
-    if (!emailSent && process.env.NODE_ENV === 'development') {
-      console.log(`🔑 [DEV OTP FOR ${email}]: ${otp}`);
-    }
+    // Always return success in development mode even if email fails
+    const emailSuccess = emailResult.success || process.env.NODE_ENV === 'development';
 
     res.json({
       status: 'success',
@@ -705,7 +574,20 @@ export const forgotPassword = async (req, res) => {
 
     const resetURL = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
 
-    await EmailService.sendPasswordReset(email, user.fullName, resetURL);
+    // Send password reset email using centralized email service
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Password Reset Request</h2>
+        <p>Hello ${user.fullName},</p>
+        <p>Click the link below to reset your password:</p>
+        <a href="${resetURL}" style="background: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+        <p>This link expires in 10 minutes.</p>
+      </div>
+    `;
+    
+    // Using sendEmail from emailService
+    const { sendEmail } = await import('../services/emailService.js');
+    await sendEmail(email, 'Reset Your Password', html);
 
     res.json({
       status: 'success',
@@ -870,15 +752,17 @@ export const testEmail = async (req, res) => {
     }
     
     const otp = '123456';
-    const success = await EmailService.sendOTP(email, 'Test User', otp);
+    const result = await sendOTPEmail(email, 'Test User', otp);
     
     res.json({
       status: 'success',
-      message: success ? 'Test email sent' : 'Test email failed',
+      message: result.success ? 'Test email processed successfully' : 'Test email failed',
       data: {
         email: email,
         otp: otp,
-        environment: process.env.NODE_ENV
+        environment: process.env.NODE_ENV,
+        mode: result.simulated ? 'console/logging mode' : 'SMTP mode',
+        success: result.success
       }
     });
   } catch (error) {
@@ -890,3 +774,31 @@ export const testEmail = async (req, res) => {
     });
   }
 };
+
+// Test email connection endpoint
+export const testEmailConnection = async (req, res) => {
+  try {
+    const success = await testEmailConnection();
+    
+    res.json({
+      status: 'success',
+      message: success ? 'Email service is working' : 'Email service test failed',
+      data: {
+        environment: process.env.NODE_ENV,
+        smtpConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+        working: success,
+        mode: process.env.NODE_ENV === 'development' ? 'Development/Console mode' : 'Production mode'
+      }
+    });
+  } catch (error) {
+    console.error('Test email connection error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to test email connection',
+      error: error.message
+    });
+  }
+};
+
+// Export the EmailTemplates if needed by other modules
+export { EmailTemplates };
