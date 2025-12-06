@@ -3,18 +3,54 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+// Create reusable transporter object
+const createTransporter = () => {
+  try {
+    // Check if we have SMTP configuration - using old env variable names as fallback
+    const emailUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const emailPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+    
+    if (!emailUser || !emailPass) {
+      console.log('❌ Email credentials missing. Using console logging only.');
+      return null;
+    }
 
-// Email templates
+    console.log('📧 Configuring Email SMTP...');
+    console.log('📧 Using email:', emailUser);
+    
+    // Create transporter with configuration - using old values as fallback
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT) || 465,
+      secure: process.env.EMAIL_SECURE === 'true' || true, // Use SSL
+      auth: {
+        user: emailUser,
+        pass: emailPass
+      },
+      tls: {
+        rejectUnauthorized: false // Allow self-signed certificates
+      }
+    });
+
+    // Verify connection configuration
+    transporter.verify((error, success) => {
+      if (error) {
+        console.error('❌ SMTP Connection Error:', error);
+      } else {
+        console.log('✅ SMTP Server is ready to send emails');
+      }
+    });
+
+    return transporter;
+  } catch (error) {
+    console.error('❌ Error creating email transporter:', error);
+    return null;
+  }
+};
+
+const transporter = createTransporter();
+
+// Email templates from old service (keeping the exact same structure)
 const templates = {
   welcome: {
     subject: 'Welcome to AI Hire Platform',
@@ -288,36 +324,198 @@ const templates = {
   }
 };
 
-// Send email function
+// Additional email templates from new service
+const additionalTemplates = {
+  OTP: (name, otp) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: #f97316; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9fafb; }
+        .otp { font-size: 32px; font-weight: bold; color: #f97316; text-align: center; margin: 20px 0; letter-spacing: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>AI Hire Platform</h1>
+        <h2>Login Verification</h2>
+      </div>
+      <div class="content">
+        <p>Hello <strong>${name}</strong>,</p>
+        <p>Your OTP for login is:</p>
+        <div class="otp">${otp}</div>
+        <p>This OTP is valid for 10 minutes.</p>
+        <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
+        <p>If you didn't request this OTP, please ignore this email.</p>
+      </div>
+      <div class="footer">
+        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `,
+  
+  // New welcome template that matches the old one's structure
+  WELCOME_NEW: (name) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
+        .header { background: #f97316; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9fafb; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Welcome to AI Hire Platform!</h1>
+      </div>
+      <div class="content">
+        <p>Hello <strong>${name}</strong>,</p>
+        <p>Welcome to AI Hire Platform - your AI-powered hiring platform!</p>
+        <p>We're excited to have you on board. Start exploring:</p>
+        <ul>
+          <li>AI-powered candidate matching</li>
+          <li>Automated resume screening</li>
+          <li>Smart analytics and insights</li>
+        </ul>
+        <p>If you need help getting started, check out our documentation or contact support.</p>
+      </div>
+      <div class="footer">
+        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+      </div>
+    </body>
+    </html>
+  `
+};
+
+// Original sendEmail function from old service (with enhanced error handling from new service)
 export const sendEmail = async (options) => {
   try {
     const { to, subject, template, data, attachments } = options;
     
-    if (!templates[template]) {
-      throw new Error(`Template ${template} not found`);
+    // Check if template exists
+    let htmlContent;
+    let emailSubject;
+    
+    if (template && templates[template]) {
+      // Use template from old service
+      const templateConfig = templates[template];
+      htmlContent = templateConfig.html(data);
+      emailSubject = templateConfig.subject;
+    } else if (template && additionalTemplates[template]) {
+      // Use additional template from new service (for OTP, etc.)
+      htmlContent = additionalTemplates[template](...Object.values(data || {}));
+      emailSubject = subject || 'Notification from AI Hire Platform';
+    } else if (options.html) {
+      // Use direct HTML if provided
+      htmlContent = options.html;
+      emailSubject = subject || 'Notification from AI Hire Platform';
+    } else {
+      throw new Error(`Template ${template} not found and no HTML provided`);
     }
     
-    const templateConfig = templates[template];
-    const html = templateConfig.html(data);
+    if (!transporter) {
+      console.log(`📧 [NO TRANSPORTER] Email would be sent to: ${to}`);
+      console.log(`📧 Subject: ${emailSubject}`);
+      console.log(`📧 Template: ${template}`);
+      return { 
+        success: false, 
+        message: 'No email transporter configured',
+        simulated: true 
+      };
+    }
     
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@aihire.com',
+      from: process.env.EMAIL_FROM || `"AI Hire Platform" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
       to,
-      subject: templateConfig.subject,
-      html,
-      attachments
+      subject: emailSubject,
+      html: htmlContent,
+      attachments,
+      text: htmlContent.replace(/<[^>]*>/g, '') // Convert HTML to text
     };
     
+    console.log(`📧 Attempting to send email to: ${to}`);
+    console.log(`📧 Subject: ${emailSubject}`);
+    console.log(`📧 Template: ${template}`);
+    
     const info = await transporter.sendMail(mailOptions);
-    console.log(`Email sent to ${to}: ${info.messageId}`);
-    return info;
+    
+    console.log(`✅ Email sent successfully to ${to}`);
+    console.log(`✅ Message ID: ${info.messageId}`);
+    console.log(`✅ Response: ${info.response}`);
+    
+    return { 
+      success: true, 
+      messageId: info.messageId,
+      response: info.response,
+      originalInfo: info // Keep original return for backward compatibility
+    };
   } catch (error) {
-    console.error('Email sending error:', error);
-    throw error;
+    console.error('❌ Email sending failed:', error);
+    
+    // Enhanced error logging from new service
+    if (error.code === 'EAUTH') {
+      console.error('❌ Authentication failed. Check email/password.');
+      console.error('❌ Make sure you\'re using an App Password, not your regular password.');
+    } else if (error.code === 'ECONNECTION') {
+      console.error('❌ Connection failed. Check network/firewall.');
+    } else if (error.code === 'ETIMEDOUT') {
+      console.error('❌ Connection timeout. Check SMTP settings.');
+    }
+    
+    throw error; // Keep original error throwing for backward compatibility
   }
 };
 
-// Send multiple emails
+// New sendEmail function from new service (as a helper function)
+export const sendDirectEmail = async (to, subject, html, text = '') => {
+  try {
+    if (!transporter) {
+      console.log(`📧 [NO TRANSPORTER] Email would be sent to: ${to}`);
+      console.log(`📧 Subject: ${subject}`);
+      console.log(`📧 OTP in HTML: ${html.match(/\d{6}/)?.[0] || 'Not found'}`);
+      return { success: false, message: 'No email transporter configured' };
+    }
+
+    const mailOptions = {
+      from: `"AI Hire Platform" <${process.env.SMTP_FROM || process.env.SMTP_USER || process.env.EMAIL_USER}>`,
+      to: to,
+      subject: subject,
+      html: html,
+      text: text || html.replace(/<[^>]*>/g, '')
+    };
+
+    console.log(`📧 Attempting to send direct email to: ${to}`);
+    console.log(`📧 Subject: ${subject}`);
+    
+    const info = await transporter.sendMail(mailOptions);
+    
+    console.log(`✅ Direct email sent successfully to ${to}`);
+    console.log(`✅ Message ID: ${info.messageId}`);
+    
+    return { 
+      success: true, 
+      messageId: info.messageId,
+      response: info.response 
+    };
+  } catch (error) {
+    console.error('❌ Direct email sending failed:', error);
+    return { 
+      success: false, 
+      error: error.message,
+      code: error.code 
+    };
+  }
+};
+
+// Send multiple emails function from old service (unchanged)
 export const sendBulkEmail = async (recipients, options) => {
   const results = [];
   
@@ -335,4 +533,61 @@ export const sendBulkEmail = async (recipients, options) => {
   }
   
   return results;
+};
+
+// New test email function
+export const testEmailConnection = async () => {
+  console.log('🔍 Testing email configuration...');
+  console.log(`🔍 SMTP Host: ${process.env.SMTP_HOST || process.env.EMAIL_HOST}`);
+  console.log(`🔍 SMTP Port: ${process.env.SMTP_PORT || process.env.EMAIL_PORT}`);
+  console.log(`🔍 SMTP User: ${process.env.SMTP_USER || process.env.EMAIL_USER}`);
+  console.log(`🔍 SMTP From: ${process.env.SMTP_FROM || process.env.EMAIL_FROM}`);
+  
+  if (!transporter) {
+    console.log('❌ No email transporter available');
+    return false;
+  }
+  
+  try {
+    await transporter.verify();
+    console.log('✅ SMTP connection verified successfully');
+    
+    // Send a test email using the old sendEmail function
+    const testResult = await sendEmail({
+      to: process.env.SMTP_USER || process.env.EMAIL_USER, // Send to yourself
+      subject: 'Test Email from AI Hire Platform',
+      template: 'welcome',
+      data: {
+        name: 'Test User',
+        loginUrl: 'https://aihire.com/dashboard'
+      }
+    });
+    
+    if (testResult.success || testResult.originalInfo) {
+      console.log('✅ Test email sent successfully');
+    } else {
+      console.log('❌ Test email failed:', testResult.error || testResult.message);
+    }
+    
+    return testResult.success || !!testResult.originalInfo;
+  } catch (error) {
+    console.error('❌ Email test failed:', error);
+    return false;
+  }
+};
+
+// Export templates for external use
+export const EmailTemplates = {
+  ...templates,
+  ...additionalTemplates
+};
+
+// Default export for backward compatibility
+export default {
+  sendEmail,          // Original function signature
+  sendDirectEmail,    // New function signature
+  sendBulkEmail,      // Bulk email function
+  testEmailConnection, // Test function
+  EmailTemplates,     // All templates
+  transporter         // Transporter instance
 };
