@@ -17,7 +17,10 @@ import {
   checkMobile,
   requestPhoneOTP,
   verifyPhoneOTP,
-  testEmail
+  testEmail,
+  requestPasswordResetOTP,
+  verifyPasswordResetOTP,
+  resetPasswordWithOTP
 } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -31,8 +34,9 @@ router.post('/request-otp', requestOTP);
 router.post('/verify-otp', verifyOTP);
 router.post('/request-phone-otp', requestPhoneOTP);
 router.post('/verify-phone-otp', verifyPhoneOTP);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', requestPasswordResetOTP); // Updated to OTP-based
+router.post('/verify-reset-otp', verifyPasswordResetOTP);
+router.post('/reset-password', resetPasswordWithOTP); // Updated to OTP-based
 router.post('/refresh-token', refreshToken);
 router.post('/logout', logout);
 router.post('/test-email', testEmail);
