@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-
+import { sendEmail, EmailTemplates, testEmailConnection } from '../utils/emailService.js';
 // ================== EMAIL SERVICE ==================
 const createTransporter = () => {
   try {
@@ -65,86 +65,75 @@ const createTransporter = () => {
 const EmailService = {
   sendWelcomeEmail: async (email, name) => {
     try {
-      const transporter = createTransporter();
+      const html = EmailTemplates.WELCOME(name);
+      const result = await sendEmail(email, 'Welcome to HireGen AI!', html);
       
-      const mailOptions = {
-        from: `"HireGen AI" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-        to: email,
-        subject: '🎉 Welcome to HireGen AI!',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Welcome ${name}!</h2>
-            <p>Thank you for joining HireGen AI.</p>
-            <p>Start exploring AI-powered hiring today.</p>
-          </div>
-        `
-      };
-      
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`✅ Welcome email sent to ${email}`);
-      return true;
+      if (result.success) {
+        console.log(`✅ Welcome email sent to ${email}`);
+        return true;
+      } else {
+        console.error(`❌ Failed to send welcome email to ${email}:`, result.error);
+        return false;
+      }
     } catch (error) {
-      console.error('❌ Welcome email failed:', error);
+      console.error('❌ Welcome email error:', error);
       return false;
     }
   },
 
   sendOTP: async (email, name, otp) => {
     try {
-      const transporter = createTransporter();
+      const html = EmailTemplates.OTP(name, otp);
+      const result = await sendEmail(email, `Your OTP: ${otp}`, html);
       
-      const mailOptions = {
-        from: `"HireGen AI" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-        to: email,
-        subject: `Your OTP: ${otp}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Hello ${name},</h2>
-            <p>Your OTP for HireGen AI login is:</p>
-            <h1 style="color: #f97316; font-size: 48px; letter-spacing: 10px;">${otp}</h1>
-            <p>This OTP is valid for 10 minutes.</p>
-            <p><strong>Note:</strong> Never share this OTP with anyone.</p>
-          </div>
-        `
-      };
-      
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`✅ OTP email sent to ${email}: ${otp}`);
-      return true;
+      if (result.success) {
+        console.log(`✅ OTP email sent to ${email}: ${otp}`);
+        console.log(`📱 [OTP FOR ${email}]: ${otp}`);
+        return true;
+      } else {
+        console.error(`❌ Failed to send OTP email to ${email}:`, result.error);
+        console.log(`📱 [FALLBACK OTP FOR ${email}]: ${otp}`);
+        return false;
+      }
     } catch (error) {
-      console.error('❌ OTP email failed:', error);
+      console.error('❌ OTP email error:', error);
+      console.log(`📱 [ERROR OTP FOR ${email}]: ${otp}`);
       return false;
     }
   },
 
   sendPasswordReset: async (email, name, resetURL) => {
     try {
-      const transporter = createTransporter();
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Password Reset Request</h2>
+          <p>Hello ${name},</p>
+          <p>Click the link below to reset your password:</p>
+          <a href="${resetURL}" style="background: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+          <p>This link expires in 10 minutes.</p>
+        </div>
+      `;
       
-      const mailOptions = {
-        from: `"HireGen AI" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
-        to: email,
-        subject: 'Reset Your Password',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Hello ${name},</h2>
-            <p>Click the link below to reset your password:</p>
-            <a href="${resetURL}" style="display: inline-block; background: #f97316; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px;">Reset Password</a>
-            <p>This link expires in 10 minutes.</p>
-          </div>
-        `
-      };
+      const result = await sendEmail(email, 'Reset Your Password', html);
       
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`✅ Password reset email sent to ${email}`);
-      return true;
+      if (result.success) {
+        console.log(`✅ Password reset email sent to ${email}`);
+        return true;
+      } else {
+        console.error(`❌ Failed to send password reset email to ${email}:`, result.error);
+        return false;
+      }
     } catch (error) {
-      console.error('❌ Password reset email failed:', error);
+      console.error('❌ Password reset email error:', error);
       return false;
     }
+  },
+
+  // Test function
+  testConnection: async () => {
+    return await testEmailConnection();
   }
 };
-
 // ================== OTP SERVICE ==================
 const otpStore = new Map();
 
