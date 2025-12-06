@@ -3,6 +3,7 @@ import express from 'express';
 import {
   register,
   login,
+  loginWithPhone, // NEW
   requestOTP,
   verifyOTP,
   getProfile,
@@ -19,6 +20,7 @@ const router = express.Router();
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+router.post('/login-with-phone', loginWithPhone); // NEW ROUTE
 router.post('/request-otp', requestOTP);
 router.post('/verify-otp', verifyOTP);
 router.post('/forgot-password', forgotPassword);
