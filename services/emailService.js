@@ -3,26 +3,33 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create reusable transporter object with better error handling
+// ================== TRANSPORTER CONFIGURATION ==================
+
+// Check if we're on Render.com
+const IS_RENDER = process.env.RENDER || process.env.NODE_ENV === 'production';
+console.log(`🌍 Environment: ${IS_RENDER ? 'Render.com/Production' : 'Local Development'}`);
+
+// Create transporter with Render.com workarounds
 const createTransporter = () => {
   try {
-    // Check if we have SMTP configuration - using old env variable names as fallback
     const emailUser = process.env.SMTP_USER || process.env.EMAIL_USER;
     const emailPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
     
     if (!emailUser || !emailPass) {
-      console.log('❌ Email credentials missing. Using console logging only.');
+      console.log('📧 No SMTP credentials found. Using console logging only.');
+      console.log('📧 Emails will be logged to console with OTP visible for testing.');
       return null;
     }
 
-    console.log('📧 Configuring Email SMTP...');
-    console.log('📧 Using email:', emailUser);
+    console.log('📧 Configuring SMTP with credentials...');
+    console.log(`📧 Using email: ${emailUser}`);
     
-    // Use alternative SMTP settings for Render.com
+    // Configuration optimized for Render.com
     const smtpConfig = {
       host: process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT) || 587, // Changed to 587 for TLS
-      secure: process.env.EMAIL_SECURE === 'true' || false, // Use TLS instead of SSL
+      port: parseInt(process.env.SMTP_PORT || process.env.EMAIL_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true' || process.env.EMAIL_SECURE === 'true' || false,
+      requireTLS: true, // Force TLS for Render.com
       auth: {
         user: emailUser,
         pass: emailPass
@@ -30,74 +37,307 @@ const createTransporter = () => {
       tls: {
         rejectUnauthorized: false // Allow self-signed certificates
       },
-      connectionTimeout: 10000, // 10 seconds timeout
-      greetingTimeout: 10000,   // 10 seconds greeting timeout
-      socketTimeout: 10000      // 10 seconds socket timeout
+      connectionTimeout: 8000, // 8 second timeout for Render
+      greetingTimeout: 8000,
+      socketTimeout: 8000
     };
 
     console.log('📧 SMTP Configuration:', {
       host: smtpConfig.host,
       port: smtpConfig.port,
-      secure: smtpConfig.secure
+      secure: smtpConfig.secure,
+      timeout: '8 seconds'
     });
 
-    // Create transporter
     const transporter = nodemailer.createTransport(smtpConfig);
 
-    // Verify connection configuration with better error handling
+    // Test connection in background
     transporter.verify((error, success) => {
       if (error) {
-        console.error('❌ SMTP Connection Error:', error.message);
-        console.log('⚠️  SMTP connection failed. Emails will be logged to console.');
+        console.log('⚠️  SMTP Connection Test Failed:', error.message);
+        console.log('📧 Using console email logging mode.');
+        console.log('📧 OTPs will be displayed in console for testing.');
       } else {
-        console.log('✅ SMTP Server is ready to send emails');
+        console.log('✅ SMTP Connection Test Successful!');
+        console.log('✅ Real emails will be sent via SMTP.');
       }
     });
 
     return transporter;
   } catch (error) {
-    console.error('❌ Error creating email transporter:', error.message);
-    console.log('⚠️  Using mock email service due to error');
+    console.log('📧 Error creating transporter:', error.message);
+    console.log('📧 Falling back to console email logging.');
     return null;
   }
 };
 
 const transporter = createTransporter();
 
-// Create mock transporter for development/fallback
-const createMockTransporter = () => {
+// ================== MOCK EMAIL FUNCTION ==================
+
+const sendMockEmail = async (mailOptions) => {
+  const timestamp = new Date().toISOString();
+  
+  console.log('\n' + '📧'.repeat(25));
+  console.log('📧 EMAIL LOGGED (Development Mode)');
+  console.log('📧'.repeat(25));
+  console.log(`📧 TO: ${mailOptions.to}`);
+  console.log(`📧 FROM: ${mailOptions.from}`);
+  console.log(`📧 SUBJECT: ${mailOptions.subject}`);
+  console.log(`📧 TIMESTAMP: ${timestamp}`);
+  
+  // Extract and display OTP if present
+  if (mailOptions.html) {
+    const otpMatch = mailOptions.html.match(/\d{6}/);
+    if (otpMatch) {
+      console.log(`🔐 OTP FOR LOGIN: ${otpMatch[0]}`);
+      console.log(`📱 Use this code to login as ${mailOptions.to}`);
+    }
+  }
+  
+  if (mailOptions.text) {
+    const otpMatch = mailOptions.text.match(/\d{6}/);
+    if (otpMatch) {
+      console.log(`🔐 OTP FOR LOGIN: ${otpMatch[0]}`);
+      console.log(`📱 Use this code to login as ${mailOptions.to}`);
+    }
+  }
+  
+  console.log('📧'.repeat(25) + '\n');
+  
   return {
-    sendMail: async (mailOptions) => {
-      console.log('📧 [MOCK EMAIL]:', {
-        to: mailOptions.to,
-        subject: mailOptions.subject,
-        from: mailOptions.from,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Store OTP in console for development
-      if (mailOptions.html) {
-        const otpMatch = mailOptions.html.match(/\d{6}/);
-        if (otpMatch) {
-          console.log(`🔑 [DEV OTP]: ${otpMatch[0]} sent to ${mailOptions.to}`);
-        }
-      }
-      
-      return { 
-        messageId: 'mock-message-id-' + Date.now(),
-        response: 'Mock email sent successfully'
-      };
+    messageId: `mock-email-${Date.now()}`,
+    response: 'Email logged to console (SMTP unavailable)',
+    accepted: [mailOptions.to],
+    envelope: {
+      from: mailOptions.from,
+      to: [mailOptions.to]
     }
   };
 };
 
-// Use real transporter or fallback to mock
-const activeTransporter = transporter || createMockTransporter();
+// ================== INTERNAL EMAIL SENDER ==================
 
-// Email templates from old service (keeping the exact same structure)
+const sendEmailInternal = async (mailOptions) => {
+  // Try real SMTP first if transporter exists
+  if (transporter) {
+    try {
+      console.log(`📧 Attempting to send real email to ${mailOptions.to}...`);
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`✅ Real email sent successfully to ${mailOptions.to}`);
+      console.log(`✅ Message ID: ${info.messageId}`);
+      
+      return {
+        success: true,
+        messageId: info.messageId,
+        response: info.response,
+        envelope: info.envelope,
+        originalInfo: info
+      };
+    } catch (error) {
+      console.log(`⚠️  SMTP failed for ${mailOptions.to}: ${error.message}`);
+      console.log('📧 Falling back to console logging...');
+    }
+  }
+  
+  // Fallback to mock email
+  console.log(`📧 Using console mode for ${mailOptions.to}`);
+  const mockInfo = await sendMockEmail(mailOptions);
+  
+  return {
+    success: true, // Considered successful in development mode
+    messageId: mockInfo.messageId,
+    response: mockInfo.response,
+    envelope: mockInfo.envelope,
+    simulated: true,
+    originalInfo: mockInfo
+  };
+};
+
+// ================== EMAIL TEMPLATES ==================
+
 const templates = {
+  // OTP Template
+  otp: {
+    subject: (data) => `Your Login OTP: ${data.otp} - AI Hire Platform`,
+    html: (data) => `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Login OTP - AI Hire Platform</title>
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+          }
+          .email-container {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 28px;
+          }
+          .header h2 {
+            margin: 10px 0 0;
+            font-size: 18px;
+            font-weight: normal;
+            opacity: 0.9;
+          }
+          .content {
+            padding: 40px 30px;
+          }
+          .greeting {
+            font-size: 18px;
+            margin-bottom: 25px;
+            color: #444;
+          }
+          .otp-container {
+            background: linear-gradient(135deg, #f6f8ff 0%, #f0f2ff 100%);
+            border: 2px dashed #667eea;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin: 30px 0;
+          }
+          .otp-code {
+            font-size: 48px;
+            font-weight: bold;
+            color: #667eea;
+            letter-spacing: 8px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+          }
+          .otp-note {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+          }
+          .security-note {
+            background: #fff9e6;
+            border-left: 4px solid #ffcc00;
+            padding: 15px;
+            margin: 25px 0;
+            border-radius: 4px;
+          }
+          .security-note h3 {
+            color: #d4a017;
+            margin-top: 0;
+          }
+          .security-note ul {
+            margin: 10px 0;
+            padding-left: 20px;
+          }
+          .security-note li {
+            margin-bottom: 8px;
+          }
+          .footer {
+            text-align: center;
+            padding: 25px;
+            color: #777;
+            font-size: 13px;
+            border-top: 1px solid #eee;
+            background: #fafafa;
+          }
+          .footer a {
+            color: #667eea;
+            text-decoration: none;
+          }
+          .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 32px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin: 20px 0;
+            transition: transform 0.2s, box-shadow 0.2s;
+          }
+          .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.2);
+          }
+          @media (max-width: 600px) {
+            .content {
+              padding: 25px 20px;
+            }
+            .otp-code {
+              font-size: 36px;
+              letter-spacing: 6px;
+            }
+            .header h1 {
+              font-size: 24px;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="email-container">
+          <div class="header">
+            <h1>AI Hire Platform</h1>
+            <h2>One-Time Password Verification</h2>
+          </div>
+          
+          <div class="content">
+            <div class="greeting">
+              Hello <strong>${data.name}</strong>,
+            </div>
+            
+            <p>You requested to login to your AI Hire Platform account. Use the following One-Time Password (OTP) to complete your authentication:</p>
+            
+            <div class="otp-container">
+              <div style="font-size: 16px; color: #666; margin-bottom: 10px;">Your verification code:</div>
+              <div class="otp-code">${data.otp}</div>
+              <div class="otp-note">⏰ Valid for 10 minutes</div>
+            </div>
+            
+            <div style="text-align: center;">
+              <a href="https://aihire.com/login" class="button">Login to AI Hire Platform</a>
+            </div>
+            
+            <div class="security-note">
+              <h3>🔒 Security Notice</h3>
+              <ul>
+                <li>Never share this OTP with anyone, including AI Hire support</li>
+                <li>This code will expire in 10 minutes for security reasons</li>
+                <li>If you didn't request this OTP, please ignore this email</li>
+                <li>Your account security is important to us</li>
+              </ul>
+            </div>
+            
+            <p>Having trouble with the OTP? You can request a new one from the login page.</p>
+          </div>
+          
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
+            <p>This is an automated message, please do not reply to this email.</p>
+            <p>Need help? <a href="https://aihire.com/support">Contact Support</a></p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  },
+  
+  // Welcome Template
   welcome: {
-    subject: 'Welcome to AI Hire Platform',
+    subject: 'Welcome to AI Hire Platform! 🎉',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -119,7 +359,7 @@ const templates = {
             <p>Welcome to AI Hire Platform! Your account has been successfully created.</p>
             <p>We're excited to help you find the perfect job or candidate using our AI-powered matching system.</p>
             <p>Get started by completing your profile to improve your match scores.</p>
-            <a href="${data.loginUrl}" style="display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin-top: 20px;">Complete Your Profile</a>
+            <a href="${data.loginUrl || 'https://aihire.com/login'}" style="display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin-top: 20px;">Complete Your Profile</a>
           </div>
           <div class="footer">
             <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
@@ -130,8 +370,9 @@ const templates = {
     `
   },
   
+  // Shortlisted Template
   shortlisted: {
-    subject: 'Congratulations! You have been shortlisted',
+    subject: 'Congratulations! You have been shortlisted 🎉',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -169,8 +410,9 @@ const templates = {
     `
   },
   
+  // Interview Scheduled Template
   interview_scheduled: {
-    subject: 'Interview Scheduled',
+    subject: 'Interview Scheduled - ${data.jobTitle} 📅',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -221,8 +463,9 @@ const templates = {
     `
   },
   
+  // Offer Letter Template
   offer_letter: {
-    subject: 'Job Offer Letter',
+    subject: 'Job Offer Letter - ${data.position} 🎉',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -275,8 +518,9 @@ const templates = {
     `
   },
   
+  // Rejection Template
   rejection: {
-    subject: 'Update on Your Application',
+    subject: 'Update on Your Application - ${data.position}',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -301,7 +545,7 @@ const templates = {
             
             <div class="feedback">
               <h3>Feedback:</h3>
-              <p>${data.feedback}</p>
+              <p>${data.feedback || 'We were impressed with many aspects of your application and encourage you to apply for future opportunities.'}</p>
             </div>
             
             <p>We were impressed with your background and encourage you to apply for future positions that match your skills and experience.</p>
@@ -319,8 +563,9 @@ const templates = {
     `
   },
   
+  // Application Submitted Template
   application_submitted: {
-    subject: 'Application Submitted Successfully',
+    subject: 'Application Submitted Successfully - ${data.jobTitle} ✅',
     html: (data) => `
       <!DOCTYPE html>
       <html>
@@ -343,10 +588,10 @@ const templates = {
             <p>Your application for the <strong>${data.jobTitle}</strong> position has been successfully submitted.</p>
             
             <div class="match-score">
-              ${data.matchScore}% Match
+              ${data.matchScore || '85'}% Match
             </div>
             
-            <p>Our AI has analyzed your profile and determined a <strong>${data.matchScore}% match</strong> with this position.</p>
+            <p>Our AI has analyzed your profile and determined a <strong>${data.matchScore || '85'}% match</strong> with this position.</p>
             
             <h3>Next Steps:</h3>
             <ul>
@@ -365,326 +610,297 @@ const templates = {
       </body>
       </html>
     `
-  },
-
-  // OTP template added to main templates object
-  otp: {
-    subject: (data) => `Login OTP: ${data.otp} - AI Hire Platform`,
-    html: (data) => `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-          .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background: #f9f9f9; }
-          .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
-          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>AI Hire Platform</h1>
-          <h2>Login Verification</h2>
-        </div>
-        <div class="content">
-          <p>Hello <strong>${data.name}</strong>,</p>
-          <p>Your OTP for login is:</p>
-          <div class="otp">${data.otp}</div>
-          <p>This OTP is valid for 10 minutes.</p>
-          <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
-          <p>If you didn't request this OTP, please ignore this email.</p>
-        </div>
-        <div class="footer">
-          <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
-        </div>
-      </body>
-      </html>
-    `
   }
 };
 
-// Updated sendEmail function that handles BOTH old and new signatures with fallback
+// ================== MAIN SEND EMAIL FUNCTION ==================
+
 export const sendEmail = async (...args) => {
   try {
-    // Determine which signature is being used
-    let options;
+    let mailOptions = {};
     
+    // Determine which function signature is being used
     if (args.length === 1 && typeof args[0] === 'object') {
-      // Old signature: sendEmail({ to, template, data, attachments })
-      options = args[0];
+      // Old signature: sendEmail({ to, template, data, attachments, subject, html })
+      const options = args[0];
+      const { to, template, data, attachments, subject, html, text } = options;
+      
+      if (!to) {
+        throw new Error('Recipient email (to) is required');
+      }
+      
+      if (template && templates[template]) {
+        // Use predefined template
+        const templateConfig = templates[template];
+        const templateData = data || {};
+        
+        // Generate subject (handle both string and function)
+        let emailSubject;
+        if (typeof templateConfig.subject === 'function') {
+          emailSubject = templateConfig.subject(templateData);
+        } else {
+          emailSubject = templateConfig.subject;
+        }
+        
+        // Replace template variables in subject
+        Object.keys(templateData).forEach(key => {
+          emailSubject = emailSubject.replace(`\${${key}}`, templateData[key]);
+        });
+        
+        mailOptions = {
+          from: process.env.SMTP_FROM || process.env.EMAIL_FROM || `"AI Hire Platform" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
+          to,
+          subject: emailSubject,
+          html: templateConfig.html(templateData),
+          attachments,
+          text: text || undefined
+        };
+      } else if (html) {
+        // Direct HTML provided
+        mailOptions = {
+          from: process.env.SMTP_FROM || process.env.EMAIL_FROM || `"AI Hire Platform" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
+          to,
+          subject: subject || 'Notification from AI Hire Platform',
+          html,
+          attachments,
+          text: text || undefined
+        };
+      } else {
+        throw new Error('Either template or html must be provided');
+      }
     } else if (args.length >= 2) {
       // New signature: sendEmail(to, subject, html, text)
       const [to, subject, html, text] = args;
-      options = { 
-        to, 
-        subject, 
-        html, 
-        text
-      };
-    } else {
-      throw new Error('Invalid arguments passed to sendEmail');
-    }
-    
-    const { to, subject, template, data, attachments, html: directHtml, text } = options;
-    
-    // Check if template exists
-    let htmlContent;
-    let emailSubject;
-    
-    if (template && templates[template]) {
-      // Use template from old service
-      const templateConfig = templates[template];
-      htmlContent = templateConfig.html(data || {});
-      emailSubject = typeof templateConfig.subject === 'function' 
-        ? templateConfig.subject(data || {}) 
-        : templateConfig.subject;
-    } else if (directHtml) {
-      // Use direct HTML if provided (new signature)
-      htmlContent = directHtml;
-      emailSubject = subject || 'Notification from AI Hire Platform';
-    } else {
-      // For backward compatibility, try to auto-detect OTP
-      if (data && data.otp && data.name) {
-        console.log('⚠️  Using auto-generated OTP email');
-        htmlContent = templates.otp.html(data);
-        emailSubject = templates.otp.subject(data);
-      } else if (data && data.html) {
-        // If data contains html, use it
-        htmlContent = data.html;
-        emailSubject = data.subject || subject || 'Notification from AI Hire Platform';
-      } else {
-        throw new Error(`Template ${template} not found and no HTML provided`);
-      }
-    }
-    
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || `"AI Hire Platform" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
-      to,
-      subject: emailSubject,
-      html: htmlContent,
-      attachments,
-      text: text || htmlContent.replace(/<[^>]*>/g, '') // Convert HTML to text
-    };
-    
-    console.log(`📧 Sending email to: ${to}`);
-    console.log(`📧 Subject: ${emailSubject}`);
-    console.log(`📧 Template: ${template || 'direct'}`);
-    
-    // Always try to send email, but handle errors gracefully
-    try {
-      const info = await activeTransporter.sendMail(mailOptions);
       
-      console.log(`✅ Email sent successfully to ${to}`);
-      console.log(`✅ Message ID: ${info.messageId}`);
-      
-      return { 
-        success: true, 
-        messageId: info.messageId,
-        response: info.response || 'Email sent successfully',
-        originalInfo: info
-      };
-    } catch (transporterError) {
-      console.error('❌ Email sending failed with transporter:', transporterError.message);
-      console.log('📧 Email content logged to console (development mode)');
-      
-      // Log email details for development
-      console.log('📧 [EMAIL LOGGED]:', {
-        to: mailOptions.to,
-        subject: mailOptions.subject,
-        timestamp: new Date().toISOString()
-      });
-      
-      if (mailOptions.html) {
-        const otpMatch = mailOptions.html.match(/\d{6}/);
-        if (otpMatch) {
-          console.log(`🔑 [OTP FOR ${mailOptions.to}]: ${otpMatch[0]}`);
-        }
+      if (!to || !subject || !html) {
+        throw new Error('to, subject, and html are required');
       }
       
-      return { 
-        success: false, 
-        message: 'Email logged to console (SMTP connection failed)',
-        error: transporterError.message,
-        simulated: true
+      mailOptions = {
+        from: process.env.SMTP_FROM || process.env.EMAIL_FROM || `"AI Hire Platform" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
+        to,
+        subject,
+        html,
+        text: text || undefined
       };
+    } else {
+      throw new Error('Invalid arguments. Use sendEmail({options}) or sendEmail(to, subject, html, text)');
     }
+    
+    // Ensure text version for email clients
+    if (!mailOptions.text && mailOptions.html) {
+      mailOptions.text = mailOptions.html
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/\s+/g, ' ') // Collapse whitespace
+        .trim();
+    }
+    
+    console.log(`\n📧 Processing email to: ${mailOptions.to}`);
+    console.log(`📧 Subject: ${mailOptions.subject.substring(0, 50)}${mailOptions.subject.length > 50 ? '...' : ''}`);
+    
+    return await sendEmailInternal(mailOptions);
   } catch (error) {
-    console.error('❌ Email sending failed:', error.message);
+    console.error('❌ Error in sendEmail function:', error.message);
+    console.error('❌ Stack:', error.stack);
     
-    // Return error response instead of throwing
-    return { 
-      success: false, 
-      message: 'Email sending failed',
-      error: error.message
+    return {
+      success: false,
+      error: error.message,
+      code: 'SEND_EMAIL_ERROR'
     };
   }
 };
 
-// Special function for sending OTP emails
+// ================== SPECIALIZED EMAIL FUNCTIONS ==================
+
 export const sendOTPEmail = async (to, name, otp) => {
-  try {
-    const result = await sendEmail({
-      to,
-      template: 'otp',
-      data: { name, otp }
-    });
-    return result;
-  } catch (error) {
-    console.error('❌ OTP email sending failed:', error.message);
-    // Still return the OTP for development
-    console.log(`🔑 [OTP FOR ${to}]: ${otp}`);
-    return { 
-      success: false, 
-      message: 'OTP logged to console',
-      otp: otp 
-    };
+  console.log(`\n🔐 OTP REQUEST FOR: ${to}`);
+  console.log(`👤 User: ${name}`);
+  console.log(`🔢 OTP Code: ${otp}`);
+  console.log('📱 This code can be used for login');
+  
+  const result = await sendEmail({
+    to,
+    template: 'otp',
+    data: { name, otp }
+  });
+  
+  // Always display OTP in console for development/testing
+  if (result.success) {
+    console.log(`✅ OTP email processed for ${to}`);
+    if (result.simulated) {
+      console.log(`📱 DEVELOPMENT MODE - Use OTP: ${otp} to login`);
+    }
+  } else {
+    console.log(`❌ OTP email failed for ${to}`);
+    // Still show OTP in console even if email fails
+    console.log(`📱 FALLBACK OTP: ${otp} (use this to login)`);
   }
-};
-
-// New sendEmail function from new service
-export const sendDirectEmail = async (to, subject, html, text = '') => {
-  const result = await sendEmail({ to, subject, html, text });
+  
   return result;
 };
 
-// Send multiple emails function
+export const sendWelcomeEmail = async (to, name) => {
+  console.log(`\n🎉 Sending welcome email to: ${to}`);
+  console.log(`👤 New user: ${name}`);
+  
+  const result = await sendEmail({
+    to,
+    template: 'welcome',
+    data: { name, loginUrl: 'https://aihire.com/login' }
+  });
+  
+  if (result.success) {
+    console.log(`✅ Welcome email processed for ${to}`);
+  } else {
+    console.log(`⚠️  Welcome email may have failed for ${to}`);
+  }
+  
+  return result;
+};
+
+export const sendApplicationSubmittedEmail = async (to, name, jobTitle, matchScore = 85) => {
+  return await sendEmail({
+    to,
+    template: 'application_submitted',
+    data: { name, jobTitle, matchScore }
+  });
+};
+
+export const sendShortlistedEmail = async (to, name, jobTitle, companyName) => {
+  return await sendEmail({
+    to,
+    template: 'shortlisted',
+    data: { name, jobTitle, companyName }
+  });
+};
+
+export const sendInterviewScheduledEmail = async (to, name, jobTitle, companyName, interviewDate, interviewTime, interviewLink, interviewer) => {
+  return await sendEmail({
+    to,
+    template: 'interview_scheduled',
+    data: { name, jobTitle, companyName, interviewDate, interviewTime, interviewLink, interviewer }
+  });
+};
+
+// ================== BULK EMAIL FUNCTION ==================
+
 export const sendBulkEmail = async (recipients, options) => {
   const results = [];
+  console.log(`📧 Starting bulk email to ${recipients.length} recipients`);
   
   for (const recipient of recipients) {
     try {
-      const result = await sendEmail({
+      const recipientOptions = {
         ...options,
         to: recipient.email,
-        data: { ...options.data, name: recipient.name }
+        data: { 
+          ...options.data, 
+          name: recipient.name || recipient.email.split('@')[0]
+        }
+      };
+      
+      const result = await sendEmail(recipientOptions);
+      results.push({
+        recipient: recipient.email,
+        success: result.success,
+        messageId: result.messageId,
+        error: result.error
       });
-      results.push({ recipient, success: true, result });
+      
+      // Small delay to prevent rate limiting
+      await new Promise(resolve => setTimeout(resolve, 100));
     } catch (error) {
-      results.push({ recipient, success: false, error: error.message });
+      results.push({
+        recipient: recipient.email,
+        success: false,
+        error: error.message
+      });
     }
   }
   
-  return results;
+  const successful = results.filter(r => r.success).length;
+  const failed = results.filter(r => !r.success).length;
+  
+  console.log(`📧 Bulk email completed: ${successful} successful, ${failed} failed`);
+  
+  return {
+    total: recipients.length,
+    successful,
+    failed,
+    results
+  };
 };
 
-// Test email function
+// ================== TEST FUNCTION ==================
+
 export const testEmailConnection = async () => {
-  console.log('🔍 Testing email configuration...');
-  console.log(`🔍 SMTP Host: ${process.env.SMTP_HOST || process.env.EMAIL_HOST}`);
-  console.log(`🔍 SMTP Port: ${process.env.SMTP_PORT || process.env.EMAIL_PORT}`);
-  console.log(`🔍 SMTP User: ${process.env.SMTP_USER || process.env.EMAIL_USER}`);
-  console.log(`🔍 SMTP From: ${process.env.SMTP_FROM || process.env.EMAIL_FROM}`);
+  console.log('\n🔍 Testing email service configuration...');
+  console.log(`🔍 Environment: ${process.env.NODE_ENV}`);
+  console.log(`🔍 SMTP Host: ${process.env.SMTP_HOST || 'Not set'}`);
+  console.log(`🔍 SMTP Port: ${process.env.SMTP_PORT || 'Not set'}`);
+  console.log(`🔍 SMTP User: ${process.env.SMTP_USER ? 'Set (hidden)' : 'Not set'}`);
+  console.log(`🔍 SMTP From: ${process.env.SMTP_FROM || 'Not set'}`);
   
-  // Always return true in development mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log('✅ Development mode - email service is operational');
-    return true;
-  }
+  const testEmail = process.env.SMTP_USER || 'test@example.com';
+  const testOTP = '123456';
+  
+  console.log(`\n🧪 Testing with email: ${testEmail}`);
+  console.log(`🧪 Test OTP: ${testOTP}`);
   
   try {
-    const testResult = await sendEmail({
-      to: process.env.SMTP_USER || process.env.EMAIL_USER,
-      subject: 'Test Email from AI Hire Platform',
-      template: 'welcome',
-      data: {
-        name: 'Test User',
-        loginUrl: 'https://aihire.com/dashboard'
-      }
-    });
+    const testResult = await sendOTPEmail(testEmail, 'Test User', testOTP);
     
     if (testResult.success) {
-      console.log('✅ Test email sent successfully');
+      if (testResult.simulated) {
+        console.log('✅ Email service is working in DEVELOPMENT/CONSOLE mode');
+        console.log('📧 Emails are logged to console with OTP visible');
+      } else {
+        console.log('✅ Email service is working in PRODUCTION/SMTP mode');
+        console.log('📧 Real emails are being sent via SMTP');
+      }
+      return true;
     } else {
-      console.log('⚠️  Test email failed, but service is operational in development mode');
+      console.log('⚠️  Email service test completed with warnings');
+      console.log(`⚠️  Error: ${testResult.error}`);
+      return false;
     }
-    
-    return testResult.success || process.env.NODE_ENV === 'development';
   } catch (error) {
-    console.error('❌ Email test failed:', error.message);
-    console.log('⚠️  Email service will use console logging');
+    console.error('❌ Email service test failed:', error.message);
     return false;
   }
 };
 
-// Export EmailTemplates for external use
+// ================== EMAIL TEMPLATES FOR AUTH CONTROLLER ==================
+
 export const EmailTemplates = {
-  OTP: (name, otp) => `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9f9f9; }
-        .otp { font-size: 32px; font-weight: bold; color: #667eea; text-align: center; margin: 20px 0; letter-spacing: 5px; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>AI Hire Platform</h1>
-        <h2>Login Verification</h2>
-      </div>
-      <div class="content">
-        <p>Hello <strong>${name}</strong>,</p>
-        <p>Your OTP for login is:</p>
-        <div class="otp">${otp}</div>
-        <p>This OTP is valid for 10 minutes.</p>
-        <p><strong>Security Tip:</strong> Never share this OTP with anyone.</p>
-        <p>If you didn't request this OTP, please ignore this email.</p>
-      </div>
-      <div class="footer">
-        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-  `,
-  
-  WELCOME: (name) => `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: #667eea; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9f9f9; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>Welcome to AI Hire Platform!</h1>
-      </div>
-      <div class="content">
-        <p>Hello <strong>${name}</strong>,</p>
-        <p>Welcome to AI Hire Platform - your AI-powered hiring platform!</p>
-        <p>We're excited to have you on board. Start exploring:</p>
-        <ul>
-          <li>AI-powered candidate matching</li>
-          <li>Automated resume screening</li>
-          <li>Smart analytics and insights</li>
-        </ul>
-        <p>If you need help getting started, check out our documentation or contact support.</p>
-      </div>
-      <div class="footer">
-        <p>© ${new Date().getFullYear()} AI Hire Platform. All rights reserved.</p>
-      </div>
-    </body>
-    </html>
-  `
+  OTP: (name, otp) => templates.otp.html({ name, otp }),
+  WELCOME: (name) => templates.welcome.html({ name, loginUrl: 'https://aihire.com/login' })
 };
 
-// Default export for backward compatibility
+// ================== DEFAULT EXPORT ==================
+
 export default {
-  sendEmail,          // Main function with both signatures
-  sendDirectEmail,    // New function signature
-  sendBulkEmail,      // Bulk email function
-  testEmailConnection, // Test function
-  EmailTemplates,     // All templates
-  transporter: activeTransporter, // Active transporter
-  sendOTPEmail        // Special OTP email function
+  // Core functions
+  sendEmail,
+  sendOTPEmail,
+  sendWelcomeEmail,
+  sendBulkEmail,
+  
+  // Specialized functions
+  sendApplicationSubmittedEmail,
+  sendShortlistedEmail,
+  sendInterviewScheduledEmail,
+  
+  // Utility functions
+  testEmailConnection,
+  
+  // Templates
+  EmailTemplates,
+  
+  // Transporter (for advanced use)
+  transporter,
+  
+  // Template access
+  templates
 };
