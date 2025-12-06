@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-import { sendOTPEmail, sendWelcomeEmail, testEmailConnection, EmailTemplates } from '../services/emailService.js';
+import { sendOTPEmail, sendWelcomeEmail, testEmailConnection as testEmailService, EmailTemplates } from '../services/emailService.js';
 
 // ================== OTP SERVICE ==================
 const otpStore = new Map();
@@ -585,7 +585,7 @@ export const forgotPassword = async (req, res) => {
       </div>
     `;
     
-    // Using sendEmail from emailService
+    // Import sendEmail dynamically to avoid circular dependency
     const { sendEmail } = await import('../services/emailService.js');
     await sendEmail(email, 'Reset Your Password', html);
 
@@ -775,10 +775,10 @@ export const testEmail = async (req, res) => {
   }
 };
 
-// Test email connection endpoint
-export const testEmailConnection = async (req, res) => {
+// Test email connection endpoint (renamed to avoid conflict)
+export const testEmailServiceConnection = async (req, res) => {
   try {
-    const success = await testEmailConnection();
+    const success = await testEmailService();
     
     res.json({
       status: 'success',
