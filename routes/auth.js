@@ -14,7 +14,9 @@ import {
   refreshToken,
   logout,
   checkEmail,
-  checkMobile
+  checkMobile.
+  requestPhoneOTP,
+  verifyPhoneOTP
 } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -38,5 +40,8 @@ router.use(protect);
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
 router.put('/change-password', changePassword);
+// Add these to the public routes section
+router.post('/request-phone-otp', requestPhoneOTP);
+router.post('/verify-phone-otp', verifyPhoneOTP);
 
 export default router;
